@@ -18,6 +18,7 @@ env:
 
 jobs:
   check_openai:
+    if: github.repository == 'we-promise/sure'
     name: Check OpenAI credentials
     runs-on: ubuntu-latest
     outputs:
@@ -76,7 +77,7 @@ jobs:
   discover_datasets:
     name: Discover eval datasets
     needs: check_openai
-    if: needs.check_openai.outputs.should_run == 'true'
+    if: github.repository == 'we-promise/sure' && (needs.check_openai.outputs.should_run == 'true')
     # The pinned ruby/setup-ruby action does not support Ubuntu 26.04.
     runs-on: ubuntu-24.04
 
@@ -180,7 +181,7 @@ jobs:
   run_evals:
     name: Run eval for ${{ matrix.dataset }} on ${{ matrix.model }}
     needs: [check_openai, discover_datasets]
-    if: needs.check_openai.outputs.should_run == 'true'
+    if: github.repository == 'we-promise/sure' && (needs.check_openai.outputs.should_run == 'true')
     runs-on: ubuntu-24.04
 
     strategy:
@@ -346,7 +347,7 @@ jobs:
   summarize_evals:
     name: Summarize LLM Evals
     needs: [check_openai, run_evals]
-    if: always() && needs.check_openai.outputs.should_run == 'true'
+    if: github.repository == 'we-promise/sure' && (always() && needs.check_openai.outputs.should_run == 'true')
     runs-on: ubuntu-latest
 
     steps:
@@ -453,7 +454,7 @@ jobs:
   skip_evals:
     name: Skip evals (no valid OpenAI token/quota)
     needs: check_openai
-    if: needs.check_openai.outputs.should_run != 'true'
+    if: github.repository == 'we-promise/sure' && (needs.check_openai.outputs.should_run != 'true')
     runs-on: ubuntu-latest
     steps:
       - name: Report skip reason

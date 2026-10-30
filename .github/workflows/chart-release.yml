@@ -11,6 +11,7 @@ permissions:
 
 jobs:
   prepare_release:
+    if: github.repository == 'we-promise/sure'
     runs-on: ubuntu-latest
     outputs:
       tag_name: ${{ steps.tag.outputs.tag_name }}
@@ -66,6 +67,7 @@ jobs:
           echo "app_version=$APP_SEMVER" >> "$GITHUB_OUTPUT"
 
   publish_chart:
+    if: github.repository == 'we-promise/sure'
     needs: prepare_release
     uses: ./.github/workflows/helm-publish.yml
     with:
@@ -75,6 +77,7 @@ jobs:
     secrets: inherit
 
   release:
+    if: github.repository == 'we-promise/sure'
     needs: [prepare_release, publish_chart]
     runs-on: ubuntu-latest
     steps:
