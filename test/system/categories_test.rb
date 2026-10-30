@@ -46,13 +46,18 @@ class CategoriesTest < ApplicationSystemTestCase
     picker = find("summary[aria-label='#{I18n.t("categories.form.trigger_label")}']")
     picker.click
 
-    # Exact-match on `data-controller` so this can't pick up the parent-category
-    # `DS::Select`, whose own search field lives under "select list-filter ...".
-    within "[data-controller='list-filter']" do
+    within "[data-controller='icon-picker']" do
       search = find("input[type='search']")
 
       search.set("zzzz")
       assert_text I18n.t("ds.icon_picker.no_matching_icons")
+
+      search.set("  credit card  ")
+      assert_selector "label[data-filter-name='credit-card']"
+      assert_no_selector "label[data-filter-name='pizza']"
+
+      search.set("groceries")
+      assert_selector "label[data-filter-name='shopping-basket']"
 
       search.set("pizza")
       assert_selector "label[data-filter-name='pizza']"
@@ -70,6 +75,28 @@ class CategoriesTest < ApplicationSystemTestCase
     assert_text "Takeout"
 
     assert_equal "pizza", @user.family.categories.find_by!(name: "Takeout").lucide_icon
+  end
+
+  test "can select an icon from search with the keyboard" do
+    visit categories_url
+    click_link I18n.t("categories.new.new_category")
+    fill_in "Name", with: "Road trips"
+    find("summary[aria-label='#{I18n.t("categories.form.trigger_label")}']").click
+
+    within "[data-controller='icon-picker']" do
+      search = find("input[type='search']")
+      search.set("car")
+      search.send_keys(:arrow_down)
+      assert_selector "input[value='car']:focus", visible: :all
+      find("input[value='car']", visible: :all).send_keys(:enter)
+      assert_selector "input[value='car']:checked", visible: :all
+    end
+
+    assert_selector "summary[aria-label='#{I18n.t("categories.form.trigger_label")}']"
+    find("summary[aria-label='#{I18n.t("categories.form.trigger_label")}']").click
+    click_button "Create Category"
+    assert_text "Road trips"
+    assert_equal "car", @user.family.categories.find_by!(name: "Road trips").lucide_icon
   end
 
   test "picking a color updates the avatar preview" do
@@ -94,7 +121,7 @@ class CategoriesTest < ApplicationSystemTestCase
     picker = find("summary[aria-label='#{I18n.t("categories.form.trigger_label")}']")
     picker.click
 
-    within "[data-controller='list-filter']" do
+    within "[data-controller='icon-picker']" do
       find("input[type='search']").set("pizza")
       assert_no_selector "label[data-filter-name='coffee']"
     end
@@ -102,12 +129,12 @@ class CategoriesTest < ApplicationSystemTestCase
     picker.click
     # Wait for the close handler before reopening; browsers can coalesce
     # back-to-back details toggles and skip the intermediate closed state.
-    within "[data-controller='list-filter']", visible: :all do
+    within "[data-controller='icon-picker']", visible: :all do
       assert_field I18n.t("ds.icon_picker.search_placeholder"), with: "", visible: :all
     end
     picker.click
 
-    within "[data-controller='list-filter']" do
+    within "[data-controller='icon-picker']" do
       assert_selector "label[data-filter-name='coffee']"
       assert_equal "", find("input[type='search']").value
     end
@@ -120,7 +147,7 @@ class CategoriesTest < ApplicationSystemTestCase
 
     find("summary[aria-label='#{I18n.t("categories.form.trigger_label")}']").click
 
-    within "[data-controller='list-filter']" do
+    within "[data-controller='icon-picker']" do
       search = find("input[type='search']")
       search.set("pizza")
       search.send_keys(:enter)
