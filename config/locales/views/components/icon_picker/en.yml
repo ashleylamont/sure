@@ -1,0 +1,427 @@
+en:
+  ds:
+    icon_picker:
+      icons:
+        ambulance:
+          label: "Ambulance"
+          keywords: ["emergency hospital paramedic medical"]
+        apple:
+          label: "Apple"
+          keywords: ["fruit produce grocery groceries food"]
+        award:
+          label: "Award"
+          keywords: ["achievement prize medal"]
+        baby:
+          label: "Baby"
+          keywords: ["babies child children childcare daycare infant"]
+        badge-dollar-sign:
+          label: "Badge dollar sign"
+          keywords: ["salary wages paycheck earnings income"]
+        banknote:
+          label: "Banknote"
+          keywords: ["cash money salary wages paycheck"]
+        barcode:
+          label: "Barcode"
+          keywords: ["checkout price retail"]
+        bar-chart-3:
+          label: "Bar chart"
+          keywords: []
+        bath:
+          label: "Bath"
+          keywords: ["bathroom bathing hygiene spa"]
+        battery:
+          label: "Battery"
+          keywords: ["charging electricity energy"]
+        bed-single:
+          label: "Single bed"
+          keywords: ["bed bedroom sleep furniture"]
+        beer:
+          label: "Beer"
+          keywords: ["pub bar alcohol drinks brewery"]
+        bike:
+          label: "Bike"
+          keywords: ["bicycle cycling cycle transport"]
+        bluetooth:
+          label: "Bluetooth"
+          keywords: ["wireless connection technology"]
+        bone:
+          label: "Bone"
+          keywords: ["pet pets dog dogs treat"]
+        book:
+          label: "Book"
+          keywords: ["books reading library education"]
+        book-open:
+          label: "Book open"
+          keywords: ["books reading study library education"]
+        briefcase:
+          label: "Briefcase"
+          keywords: ["work business job office professional"]
+        building:
+          label: "Building"
+          keywords: ["property real estate apartment apartments rent"]
+        bus:
+          label: "Bus"
+          keywords: ["transport transit commute public transport"]
+        cake:
+          label: "Cake"
+          keywords: ["birthday celebration dessert bakery"]
+        calculator:
+          label: "Calculator"
+          keywords: ["accounting maths math finance"]
+        calendar-heart:
+          label: "Calendar heart"
+          keywords: ["anniversary date wedding"]
+        calendar-range:
+          label: "Calendar range"
+          keywords: ["schedule appointment dates"]
+        camera:
+          label: "Camera"
+          keywords: ["photography photos photo"]
+        car:
+          label: "Car"
+          keywords: ["auto automobile vehicle driving transport"]
+        cat:
+          label: "Cat"
+          keywords: ["pet pets cats kitten animal animals vet veterinarian"]
+        chart-line:
+          label: "Chart line"
+          keywords: ["invest investment investing stocks portfolio growth"]
+        circle-dollar-sign:
+          label: "Circle dollar sign"
+          keywords: ["money salary wages paycheck earnings income"]
+        circle-parking:
+          label: "Circle parking"
+          keywords: ["parking garage vehicle"]
+        coffee:
+          label: "Coffee"
+          keywords: ["cafe caf\u00e9 caffeine breakfast drinks"]
+        coins:
+          label: "Coins"
+          keywords: ["cash money savings saving currency"]
+        compass:
+          label: "Compass"
+          keywords: ["navigation explore adventure"]
+        cookie:
+          label: "Cookie"
+          keywords: ["cookies biscuit biscuits snack dessert food"]
+        cooking-pot:
+          label: "Cooking pot"
+          keywords: ["cooking kitchen cookware meal meals food"]
+        credit-card:
+          label: "Credit card"
+          keywords: ["debt loan loans repayment payment finance"]
+        dices:
+          label: "Dice"
+          keywords: ["dice games gambling casino"]
+        dog:
+          label: "Dog"
+          keywords: ["pet pets dogs puppy animal animals vet veterinarian"]
+        drama:
+          label: "Drama"
+          keywords: ["theater theatre performance arts"]
+        drill:
+          label: "Drill"
+          keywords: ["tools tool renovation diy construction"]
+        droplet:
+          label: "Droplet"
+          keywords: ["water plumbing bill bills"]
+        drum:
+          label: "Drum"
+          keywords: ["instrument instruments band percussion"]
+        dumbbell:
+          label: "Dumbbell"
+          keywords: ["gym exercise workout training fitness sport sports"]
+        film:
+          label: "Film"
+          keywords: ["movie movies cinema theater theatre streaming"]
+        flame:
+          label: "Flame"
+          keywords: ["fire gas heating heat"]
+        flower:
+          label: "Flower"
+          keywords: ["flowers garden gardening bouquet"]
+        flower-2:
+          label: "Flower blossom"
+          keywords: ["flowers garden gardening bouquet"]
+        fuel:
+          label: "Fuel"
+          keywords: ["gas petrol diesel gasoline refuel"]
+        gamepad-2:
+          label: "Game controller"
+          keywords: ["game games gaming console videogames video games"]
+        gem:
+          label: "Gem"
+          keywords: ["jewellery jewelry luxury diamond"]
+        gift:
+          label: "Gift"
+          keywords: ["present presents birthday gifts"]
+        glasses:
+          label: "Glasses"
+          keywords: ["eyewear optician vision spectacles"]
+        globe:
+          label: "Globe"
+          keywords: ["world international overseas internet"]
+        graduation-cap:
+          label: "Graduation cap"
+          keywords: ["school university college tuition study learning"]
+        hammer:
+          label: "Hammer"
+          keywords: ["tools tool renovation diy construction"]
+        hand-heart:
+          label: "Hand heart"
+          keywords: ["charity donation donations giving"]
+        hand-helping:
+          label: "Helping hand"
+          keywords: ["charity donation donations nonprofit giving volunteer"]
+        heart-handshake:
+          label: "Heart handshake"
+          keywords: ["charity donation donations support community"]
+        handshake:
+          label: "Handshake"
+          keywords: ["agreement partnership business"]
+        headphones:
+          label: "Headphones"
+          keywords: ["audio listening podcast podcasts"]
+        heart:
+          label: "Heart"
+          keywords: ["love favourite favorite wellbeing"]
+        heart-pulse:
+          label: "Heart pulse"
+          keywords: ["health medical hospital doctor wellness"]
+        home:
+          label: "Home"
+          keywords: ["rent mortgage housing property apartment"]
+        hotel:
+          label: "Hotel"
+          keywords: ["accommodation lodging holiday vacation"]
+        house:
+          label: "House"
+          keywords: ["rent mortgage housing property apartment"]
+        ice-cream-cone:
+          label: "Ice cream cone"
+          keywords: ["dessert gelato sweets food"]
+        key:
+          label: "Key"
+          keywords: ["keys locksmith lock property"]
+        landmark:
+          label: "Landmark"
+          keywords: ["bank banking government tax taxes"]
+        laptop:
+          label: "Laptop"
+          keywords: ["computer computing electronics technology work"]
+        leaf:
+          label: "Leaf"
+          keywords: ["environment nature sustainable garden gardening"]
+        lightbulb:
+          label: "Lightbulb"
+          keywords: ["electricity electric energy lighting bills"]
+        luggage:
+          label: "Luggage"
+          keywords: ["suitcase baggage holiday vacation travel"]
+        mail:
+          label: "Mail"
+          keywords: ["post postage shipping letter email"]
+        map-pin:
+          label: "Map pin"
+          keywords: ["location address destination maps"]
+        martini:
+          label: "Martini"
+          keywords: ["cocktail cocktails bar alcohol drinks"]
+        mic:
+          label: "Microphone"
+          keywords: ["microphone karaoke recording podcast"]
+        monitor:
+          label: "Monitor"
+          keywords: ["computer screen desktop electronics"]
+        moon:
+          label: "Moon"
+          keywords: ["night sleep evening"]
+        music:
+          label: "Music"
+          keywords: ["song songs concert concerts instruments audio"]
+        package:
+          label: "Package"
+          keywords: ["parcel delivery shipping courier"]
+        palette:
+          label: "Palette"
+          keywords: ["art painting craft crafts hobby hobbies"]
+        party-popper:
+          label: "Party popper"
+          keywords: ["party celebration birthday event"]
+        paw-print:
+          label: "Paw print"
+          keywords: ["pet pets dog dogs cat cats animal animals vet veterinarian"]
+        pen:
+          label: "Pen"
+          keywords: ["stationery writing office supplies"]
+        pencil:
+          label: "Pencil"
+          keywords: ["stationery writing drawing school supplies"]
+        percent:
+          label: "Percent"
+          keywords: ["interest discount sale fees"]
+        phone:
+          label: "Phone"
+          keywords: ["telephone call calls landline telecom"]
+        pie-chart:
+          label: "Pie chart"
+          keywords: ["invest investment investing stocks portfolio finance"]
+        piggy-bank:
+          label: "Piggy bank"
+          keywords: ["saving savings money emergency fund"]
+        pill:
+          label: "Pill"
+          keywords: ["medicine medication pharmacy prescriptions dental dentist"]
+        pizza:
+          label: "Pizza"
+          keywords: ["takeaway takeout delivery fast food restaurant dining"]
+        plane:
+          label: "Plane"
+          keywords: ["flight flights airline airlines airport holiday vacation"]
+        plug:
+          label: "Plug"
+          keywords: ["electricity electric energy charger charging"]
+        popcorn:
+          label: "Popcorn"
+          keywords: ["movie movies cinema snack snacks"]
+        power:
+          label: "Power"
+          keywords: ["electricity electric energy switch"]
+        printer:
+          label: "Printer"
+          keywords: ["printing ink stationery office supplies"]
+        puzzle:
+          label: "Puzzle"
+          keywords: ["game games hobby hobbies toys"]
+        receipt:
+          label: "Receipt"
+          keywords: ["bill bills expense expenses payment payments fees"]
+        receipt-text:
+          label: "Receipt text"
+          keywords: ["bill bills expense expenses payment payments fees"]
+        ribbon:
+          label: "Ribbon"
+          keywords: ["awareness charity cause"]
+        scale:
+          label: "Scale"
+          keywords: ["legal lawyer law justice weight"]
+        scissors:
+          label: "Scissors"
+          keywords: ["hair haircut hairdresser salon barber beauty"]
+        settings:
+          label: "Settings"
+          keywords: ["preferences configuration options"]
+        shield:
+          label: "Shield"
+          keywords: ["protection security insurance"]
+        shield-plus:
+          label: "Shield plus"
+          keywords: ["protection health medical insurance"]
+        shirt:
+          label: "Shirt"
+          keywords: ["clothes clothing apparel fashion laundry"]
+        shopping-bag:
+          label: "Shopping bag"
+          keywords: ["groceries grocery supermarket retail purchases"]
+        shopping-basket:
+          label: "Shopping basket"
+          keywords: ["groceries grocery supermarket produce"]
+        shopping-cart:
+          label: "Shopping cart"
+          keywords: ["groceries grocery supermarket retail purchases"]
+        smartphone:
+          label: "Smartphone"
+          keywords: ["mobile cellphone cell phone telecom electronics"]
+        sparkles:
+          label: "Sparkles"
+          keywords: ["cleaning beauty cosmetics"]
+        sprout:
+          label: "Sprout"
+          keywords: ["garden gardening plants growth environment"]
+        stethoscope:
+          label: "Stethoscope"
+          keywords: ["doctor doctors hospital medical clinic health healthcare"]
+        store:
+          label: "Store"
+          keywords: ["shop shops retail market markets"]
+        sun:
+          label: "Sun"
+          keywords: ["day sunshine solar summer"]
+        tablet-smartphone:
+          label: "Tablet and smartphone"
+          keywords: ["devices electronics mobile technology"]
+        tag:
+          label: "Tag"
+          keywords: ["label price discount sale"]
+        target:
+          label: "Target"
+          keywords: ["goal goals aim milestone"]
+        tent:
+          label: "Tent"
+          keywords: ["camp camping outdoors hiking holiday vacation"]
+        thermometer:
+          label: "Thermometer"
+          keywords: ["temperature fever medical health"]
+        ticket:
+          label: "Ticket"
+          keywords: ["tickets concert concerts event events admission"]
+        train:
+          label: "Train"
+          keywords: ["rail railway metro subway commute transport"]
+        trees:
+          label: "Trees"
+          keywords: ["forest park nature outdoors garden"]
+        tree-palm:
+          label: "Palm tree"
+          keywords: ["beach tropical holiday vacation"]
+        trending-up:
+          label: "Trending up"
+          keywords: ["saving savings invest investment investing stocks portfolio growth"]
+        trophy:
+          label: "Trophy"
+          keywords: ["prize winner achievement sport sports"]
+        truck:
+          label: "Truck"
+          keywords: ["delivery moving shipping transport van"]
+        tv:
+          label: "Tv"
+          keywords: ["television streaming movies cable subscription"]
+        umbrella:
+          label: "Umbrella"
+          keywords: ["rain weather protection insurance"]
+        undo-2:
+          label: "Refund"
+          keywords: ["refund return returns reversal"]
+        unplug:
+          label: "Unplugged"
+          keywords: ["electricity electric disconnect"]
+        users:
+          label: "People"
+          keywords: ["family friends community people group"]
+        utensils:
+          label: "Utensils"
+          keywords: ["food dining restaurant restaurants meal meals lunch dinner breakfast eating takeaway takeout"]
+        video:
+          label: "Video"
+          keywords: ["movie movies recording camera"]
+        wallet:
+          label: "Wallet"
+          keywords: ["cash money spending payment payments"]
+        wallet-cards:
+          label: "Wallet cards"
+          keywords: ["payment payments credit cards banking"]
+        waves:
+          label: "Waves"
+          keywords: ["water sewage plumbing swimming beach"]
+        wifi:
+          label: "Wifi"
+          keywords: ["internet broadband subscription subscriptions wireless"]
+        wine:
+          label: "Wine"
+          keywords: ["alcohol drinks bar vineyard"]
+        wrench:
+          label: "Wrench"
+          keywords: ["repair repairs maintenance mechanic tools tool"]
+        zap:
+          label: "Lightning bolt"
+          keywords: ["electric electricity energy power bills"]

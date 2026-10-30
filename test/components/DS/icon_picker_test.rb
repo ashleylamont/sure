@@ -10,21 +10,21 @@ class DS::IconPickerTest < ViewComponent::TestCase
     assert_selector "label.filterable-item[data-filter-name='dog']"
   end
 
-  test "wires the list-filter controller with a search input and empty message" do
+  test "wires the icon search controller with a search input and empty message" do
     render_icon_picker(icons: %w[pizza])
 
-    assert_selector "[data-controller='list-filter']"
-    assert_selector "input[type='search'][data-list-filter-target='input']"
-    assert_selector "[data-list-filter-target='list']"
-    assert_selector "[data-list-filter-target='emptyMessage']", text: "No matching icons", visible: :all
+    assert_selector "[data-controller='icon-picker']"
+    assert_selector "input[type='search'][data-icon-picker-target='input']"
+    assert_selector "[data-icon-picker-target='list']"
+    assert_selector "[data-icon-picker-target='emptyMessage']", text: "No matching icons", visible: :all
   end
 
   test "prevents Enter in the search field from submitting the form" do
     render_icon_picker(icons: %w[pizza])
 
     action = page.find("input[type='search']")["data-action"]
-    assert_includes action, "input->list-filter#filter"
-    assert_includes action, "keydown.enter->list-filter#filter:prevent"
+    assert_includes action, "input->icon-picker#filter"
+    assert_includes page.find("[data-controller='icon-picker']")["data-action"], "keydown->icon-picker#handleKeydown"
   end
 
   test "preserves the color-icon-picker contract on each radio" do
@@ -48,6 +48,39 @@ class DS::IconPickerTest < ViewComponent::TestCase
       icons: %w[pizza]
     )
     assert_selector "input[name='goal[icon]']", visible: :all
+  end
+
+  test "exposes readable names and everyday search keywords" do
+    render_icon_picker(icons: %w[shopping-basket credit-card paw-print])
+
+    basket = page.find("label[data-filter-name='shopping-basket']")
+    assert_equal "Shopping basket", basket["title"]
+    assert_includes JSON.parse(basket["data-icon-picker-keywords"]).join(" "), "groceries"
+    assert_selector "input[value='credit-card'][aria-label='Credit card']", visible: :all
+    assert_includes page.find("label[data-filter-name='paw-print']")["data-icon-picker-keywords"], "pets"
+  end
+
+  test "searches translated categories alongside English names and keywords" do
+    I18n.with_locale(:fr) do
+      render_icon_picker(icons: %w[shopping-basket piggy-bank])
+
+      basket = page.find("label[data-filter-name='shopping-basket']")
+      assert_includes JSON.parse(basket["data-icon-picker-keywords"]), "Épicerie"
+      assert_includes JSON.parse(basket["data-icon-picker-names"]), "shopping-basket"
+      assert_includes JSON.parse(basket["data-icon-picker-names"]), "Shopping basket"
+      assert_includes page.find("label[data-filter-name='piggy-bank']")["data-icon-picker-keywords"], "Épargne"
+      assert_selector "input[value='shopping-basket'][aria-label='Shopping basket']", visible: :all
+    end
+  end
+
+  test "all available icons have an English label and search metadata" do
+    picker = DS::IconPicker.new(form: nil, method: :icon, icons: Category.icon_codes)
+
+    Category.icon_codes.each do |code|
+      assert I18n.exists?("ds.icon_picker.icons.#{code}.label", :en), "Missing label for #{code}"
+      assert_not_empty picker.search_names(code)
+      assert_not_empty picker.search_keywords(code)
+    end
   end
 
   private
