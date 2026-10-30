@@ -30,7 +30,9 @@ export function rankIcons(icons, value) {
     .map((icon) => ({
       icon,
       score: Math.min(
-        ...icon.names.map((name) => fieldScore(normalizeIconQuery(name), query)),
+        ...icon.names.map((name) =>
+          fieldScore(normalizeIconQuery(name), query),
+        ),
         ...icon.keywords.map(
           (keyword) => fieldScore(normalizeIconQuery(keyword), query) + 4,
         ),
