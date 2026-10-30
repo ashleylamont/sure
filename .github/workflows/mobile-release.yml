@@ -11,6 +11,7 @@ permissions:
 
 jobs:
   prepare_release:
+    if: github.repository == 'we-promise/sure'
     name: Prepare release tag
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -67,13 +68,14 @@ jobs:
           fi
 
   build:
+    if: github.repository == 'we-promise/sure'
     name: Build Mobile Apps
     uses: ./.github/workflows/flutter-build.yml
     secrets: inherit
 
   play-store:
     name: Upload Android to Google Play
-    if: ${{ needs.build.outputs.has_app_release_aab == 'true' }}
+    if: github.repository == 'we-promise/sure' && (needs.build.outputs.has_app_release_aab == 'true')
     needs: [build, prepare_release]
     uses: ./.github/workflows/google-play-upload.yml
     with:
@@ -82,6 +84,7 @@ jobs:
     secrets: inherit
 
   testflight:
+    if: github.repository == 'we-promise/sure'
     name: Upload iOS to TestFlight
     needs: [build, prepare_release]
     uses: ./.github/workflows/ios-testflight.yml
@@ -90,6 +93,7 @@ jobs:
     secrets: inherit
 
   release:
+    if: github.repository == 'we-promise/sure'
     name: Create Mobile GitHub Release
     needs: [build, prepare_release]
     runs-on: ubuntu-latest
