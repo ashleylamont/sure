@@ -1,0 +1,25 @@
+<div class="space-y-6 pb-6">
+  <%= render "goal_funding/header", title: t("goal_funding.preview") %>
+  <%= render DS::Alert.new(variant: "warning", message: funding_reason(@proposal[:reason_code])) if @proposal[:reason_code] %>
+  <% @proposal[:accounts].each do |data| %>
+    <%= render "goal_funding/account", data: data %>
+    <p class="text-primary"><%= t("goal_funding.after_funding", amount: funding_money(data[:proposed_unallocated], data[:currency])) %></p>
+  <% end %>
+  <%= render DS::Table.new(rows: @proposal[:changes], label: t("goal_funding.changes")) do |table| %>
+    <% table.with_column(t("goal_funding.purpose")) { |change| funding_goal_name(change[:goal_id]) } %>
+    <% table.with_column(t("goal_funding.before"), numeric: true) { |change| change[:before_amount] || t("goal_funding.whole_account") } %>
+    <% table.with_column(t("goal_funding.after"), numeric: true) { |change| change[:after_amount] } %>
+  <% end %>
+  <% if @proposal[:allowed] %>
+    <%= styled_form_with scope: :allocation, url: goal_allocations_path, class: "space-y-4" do |f| %>
+      <% @data.except("preview_token", "confirm_conversion").each do |name, value| %>
+        <%= f.hidden_field name, value: value %>
+      <% end %>
+      <%= f.hidden_field :preview_token, value: @proposal[:preview_token] %>
+      <% if @proposal[:requires_conversion] %>
+        <div><%= f.check_box :confirm_conversion, required: true %> <%= f.label :confirm_conversion, t("goal_funding.confirm_conversion") %></div>
+      <% end %>
+      <%= f.submit t("goal_funding.apply") %>
+    <% end %>
+  <% end %>
+</div>

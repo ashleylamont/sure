@@ -1,0 +1,6 @@
+<%# locals: (runs:) %>
+<%= render DS::Table.new(rows: runs, label: t("goal_funding.runs")) do |table| %>
+  <% table.with_column(t("goal_funding.date")) { |run| link_to l(run.source_date), goal_funding_run_path(run), class: "text-link" } %>
+  <% table.with_column(t("goal_funding.status")) { |run| t("goal_funding.statuses.#{run.status}") } %>
+  <% table.with_column(t("goal_funding.reason")) { |run| funding_reason(run.reason_code).to_s } %>
+<% end %>

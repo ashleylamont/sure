@@ -8,6 +8,7 @@
       <%= render DS::Pill.new(label: t("shared.preview"), size: :md) %>
     </div>
     <p class="text-sm text-secondary mt-1"><%= t(".subtitle") %></p>
+    <%= render DS::Link.new(text: t("goal_funding.title"), href: goal_funding_path, variant: :ghost, icon: "wallet") %>
   </header>
 
   <div class="grid grid-cols-1 @3xl:grid-cols-2 gap-4 items-stretch">

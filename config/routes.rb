@@ -481,6 +481,20 @@ Rails.application.routes.draw do
     end
   end
 
+  get "goal-funding", to: "goal_funding#index", as: :goal_funding
+  resources :goal_allocations, only: %i[new create] do
+    post :preview, on: :collection
+  end
+  resources :goal_funding_plans, only: %i[new edit create update show] do
+    post :enable, on: :member
+    post :disable, on: :member
+  end
+  resources :goal_funding_runs, only: :show do
+    post :retry, on: :member
+    post :skip, on: :member
+    post :reverse, on: :member
+  end
+
   resources :goals do
     member do
       patch :pause

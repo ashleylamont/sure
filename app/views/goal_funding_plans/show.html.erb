@@ -1,0 +1,17 @@
+<div class="space-y-6 pb-6">
+  <%= render "goal_funding/header", title: @plan.name %>
+  <div class="flex gap-2">
+    <%= render DS::Link.new(text: t("goal_funding.edit_plan"), href: edit_goal_funding_plan_path(@plan), variant: :secondary) %>
+    <%= render DS::Button.new(text: t("goal_funding.disable"), href: disable_goal_funding_plan_path(@plan), method: :post, variant: :secondary) if @plan.enabled? %>
+  </div>
+  <%= render "goal_funding/preview", preview: @preview %>
+  <p class="text-sm text-secondary"><%= t("goal_funding.starts_on", date: l(@plan.automatic_start_on)) %></p>
+  <% unless @plan.enabled? %>
+    <%= styled_form_with url: enable_goal_funding_plan_path(@plan), class: "space-y-4" do |f| %>
+      <%= f.hidden_field :preview_token, value: @preview[:preview_token] %>
+      <div><%= f.check_box :confirm_salary_source, required: true %> <%= f.label :confirm_salary_source, t("goal_funding.confirm_salary") %></div>
+      <%= f.submit t("goal_funding.enable") %>
+    <% end %>
+  <% end %>
+  <%= render "goal_funding_runs/list", runs: @runs %>
+</div>
