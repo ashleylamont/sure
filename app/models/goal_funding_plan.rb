@@ -108,6 +108,7 @@ class GoalFundingPlan < ApplicationRecord
     with_lock do
       authorize_owner!(actor)
       raise Goal::AllocationError.new(:preview_disabled, status: :forbidden) unless actor.preview_features_enabled?
+      return self if enabled?
       raise Goal::AllocationError.new(:preview_required) unless ActiveModel::Type::Boolean.new.cast(confirm_salary_source)
       Goal::AllocationAdjustment.with_account_locks([ backing_account_id ]) do
         data = preview

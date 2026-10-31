@@ -6,15 +6,15 @@
   <% end %>
   <%= render DS::Table.new(rows: @run.rules_snapshot, label: t("goal_funding.recorded_changes")) do |table| %>
     <% table.with_column(t("goal_funding.purpose")) { |rule| rule["goal_name"] } %>
-    <% table.with_column(t("goal_funding.recorded_amount"), numeric: true) { |rule| funding_money(rule["amount"], rule["currency"]) } %>
+    <% table.with_column(t("goal_funding.recorded_amount"), numeric: true, class: "privacy-sensitive") { |rule| funding_money(rule["amount"], rule["currency"]) } %>
   <% end %>
   <%= render DS::Alert.new(variant: "warning", message: funding_reason(@run.reason_code)) if @run.reason_code %>
   <% if @reversing %>
     <%= render DS::Alert.new(variant: "info", message: t("goal_funding.reversal_hint")) %>
     <%= render DS::Table.new(rows: @preview[:changes], label: t("goal_funding.changes")) do |table| %>
       <% table.with_column(t("goal_funding.purpose")) { |change| funding_goal_name(change[:goal_id]) } %>
-      <% table.with_column(t("goal_funding.before"), numeric: true) { |change| change[:before_amount] } %>
-      <% table.with_column(t("goal_funding.after"), numeric: true) { |change| change[:after_amount] } %>
+      <% table.with_column(t("goal_funding.before"), numeric: true, class: "privacy-sensitive") { |change| change[:before_amount] } %>
+      <% table.with_column(t("goal_funding.after"), numeric: true, class: "privacy-sensitive") { |change| change[:after_amount] } %>
     <% end %>
     <%= styled_form_with url: reverse_goal_funding_run_path(@run) do |f| %>
       <%= f.hidden_field :preview_token, value: @preview[:preview_token] %>
