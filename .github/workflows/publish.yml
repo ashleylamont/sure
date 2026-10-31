@@ -112,6 +112,11 @@ jobs:
               fi
             fi
           fi
+          # A moving tag lets downstream Renovate compare fork image digests.
+          # The fork CI gate above restricts dispatches to integration main.
+          if [[ "$GITHUB_REPOSITORY" != "we-promise/sure" && "$GITHUB_REF" == "refs/heads/main" ]]; then
+            BASE_CONFIG+=$'\n'"type=raw,value=main"
+          fi
           {
             echo 'TAGS_SPEC<<EOF'
             echo "$BASE_CONFIG"
