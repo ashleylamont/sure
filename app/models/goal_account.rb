@@ -1,4 +1,6 @@
 class GoalAccount < ApplicationRecord
+  attr_accessor :reservation_audit_managed, :reservation_write_authorized
+
   belongs_to :goal
   belongs_to :account
 
@@ -8,6 +10,11 @@ class GoalAccount < ApplicationRecord
             allow_nil: true
 
   validate :whole_account_link_must_be_exclusive
+  validate :funding_accounts_use_reservation_controls
+  before_validation :lock_reservation_account, if: -> { new_record? || allocated_amount_changed? || account_id_changed? || goal_id_changed? }
+  before_destroy :lock_reservation_account
+  after_save :record_reservation_change
+  after_destroy :record_reservation_release
 
   # nil allocated_amount means "dedicate the whole account balance" (the v1
   # default). A set amount earmarks a fixed slice of the account toward this
@@ -19,6 +26,31 @@ class GoalAccount < ApplicationRecord
   end
 
   private
+    def funding_accounts_use_reservation_controls
+      return if reservation_audit_managed || reservation_write_authorized
+      return if new_record? && allocated_amount == 0
+      return unless new_record? || allocated_amount_changed? || account_id_changed? || goal_id_changed?
+      return unless GoalFundingPlan.where(backing_account_id: [ account_id, account_id_in_database ].compact).exists?
+      errors.add(:base, I18n.t("goal_funding.errors.use_reservation_controls"))
+    end
+
+    def lock_reservation_account
+      Goal.lock_whole_account_claims!(account_id) if account_id
+    end
+
+    def record_reservation_change
+      return if reservation_audit_managed
+      return unless previously_new_record? || saved_change_to_allocated_amount?
+
+      before = previously_new_record? ? 0.to_d : allocated_amount_before_last_save
+      GoalAllocation.record_link_change!(self, before: before, after: allocated_amount)
+    end
+
+    def record_reservation_release
+      return if reservation_audit_managed
+      GoalAllocation.record_link_change!(self, before: allocated_amount, after: 0.to_d)
+    end
+
     # A whole-account link claims the account's ENTIRE balance, so two of them
     # on one account double-count it. Goal#backing_share_for's pro-rata haircut
     # can't catch this: it only scales FIXED earmarks, and an unallocated link

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_20_090001) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_31_090000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "pgcrypto"
@@ -109,6 +109,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_20_090001) do
     t.boolean "enable_category_matcher", default: true, null: false
     t.boolean "exclude_from_reports", default: false, null: false
     t.uuid "family_id", null: false
+    t.bigint "goal_allocation_version", default: 0, null: false
+    t.datetime "goal_cash_reconciled_at"
+    t.decimal "goal_operating_floor", precision: 19, scale: 4, default: "0.0", null: false
+    t.decimal "goal_reconciled_cash", precision: 19, scale: 4
     t.uuid "import_id"
     t.string "institution_domain"
     t.string "institution_name"
@@ -135,6 +139,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_20_090001) do
     t.index ["plaid_account_id"], name: "index_accounts_on_plaid_account_id"
     t.index ["simplefin_account_id"], name: "index_accounts_on_simplefin_account_id"
     t.index ["status"], name: "index_accounts_on_status"
+    t.check_constraint "goal_operating_floor >= 0::numeric", name: "chk_goal_operating_floor_non_negative"
   end
 
   create_table "active_storage_attachments", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -1133,6 +1138,101 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_20_090001) do
     t.index ["goal_id", "account_id"], name: "index_savings_goal_accounts_on_goal_and_account", unique: true
     t.index ["goal_id"], name: "index_goal_accounts_on_goal_id"
     t.check_constraint "allocated_amount IS NULL OR allocated_amount >= 0::numeric", name: "chk_goal_accounts_allocation_non_negative"
+  end
+
+  create_table "goal_allocation_changes", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "account_id", null: false
+    t.string "account_name", null: false
+    t.decimal "after_amount", precision: 19, scale: 4
+    t.decimal "before_amount", precision: 19, scale: 4
+    t.datetime "created_at", null: false
+    t.string "currency", null: false
+    t.decimal "delta", precision: 19, scale: 4
+    t.uuid "goal_allocation_id", null: false
+    t.uuid "goal_id"
+    t.string "goal_name"
+    t.datetime "updated_at", null: false
+    t.index ["account_id", "created_at"], name: "index_goal_allocation_changes_on_account_id_and_created_at"
+    t.index ["goal_allocation_id", "account_id", "goal_id"], name: "idx_goal_allocation_change_once", unique: true, nulls_not_distinct: true
+    t.index ["goal_allocation_id"], name: "index_goal_allocation_changes_on_goal_allocation_id"
+  end
+
+  create_table "goal_allocations", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.uuid "family_id", null: false
+    t.uuid "goal_funding_run_id"
+    t.string "idempotency_key", null: false
+    t.string "kind", null: false
+    t.string "payload_fingerprint", null: false
+    t.text "reason", null: false
+    t.jsonb "result", default: {}, null: false
+    t.datetime "updated_at", null: false
+    t.uuid "user_id"
+    t.index ["family_id", "idempotency_key"], name: "idx_goal_allocation_idempotency", unique: true
+    t.index ["family_id"], name: "index_goal_allocations_on_family_id"
+    t.index ["goal_funding_run_id", "kind"], name: "idx_goal_allocation_run_once", unique: true, where: "(goal_funding_run_id IS NOT NULL)"
+    t.index ["user_id"], name: "index_goal_allocations_on_user_id"
+  end
+
+  create_table "goal_funding_plans", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "backing_account_id"
+    t.datetime "created_at", null: false
+    t.string "currency", null: false
+    t.date "effective_on", null: false
+    t.boolean "enabled", default: false, null: false
+    t.datetime "enabled_at"
+    t.uuid "family_id", null: false
+    t.decimal "maximum_salary", precision: 19, scale: 4, null: false
+    t.decimal "minimum_salary", precision: 19, scale: 4, null: false
+    t.string "name", null: false
+    t.integer "revision", default: 1, null: false
+    t.uuid "sample_entry_id"
+    t.uuid "source_account_id"
+    t.string "source_name", null: false
+    t.text "source_notes"
+    t.datetime "updated_at", null: false
+    t.uuid "user_id"
+    t.index ["backing_account_id"], name: "index_goal_funding_plans_on_backing_account_id"
+    t.index ["enabled", "id"], name: "index_goal_funding_plans_on_enabled_and_id"
+    t.index ["family_id"], name: "index_goal_funding_plans_on_family_id"
+    t.index ["source_account_id"], name: "index_goal_funding_plans_on_source_account_id"
+    t.index ["user_id"], name: "index_goal_funding_plans_on_user_id"
+    t.check_constraint "minimum_salary > 0::numeric AND maximum_salary >= minimum_salary", name: "chk_goal_funding_salary_range"
+    t.check_constraint "revision > 0", name: "chk_goal_funding_revision"
+  end
+
+  create_table "goal_funding_rules", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.decimal "amount", precision: 19, scale: 4, null: false
+    t.datetime "created_at", null: false
+    t.uuid "goal_funding_plan_id", null: false
+    t.uuid "goal_id"
+    t.boolean "stop_at_target", default: false, null: false
+    t.datetime "updated_at", null: false
+    t.index ["goal_funding_plan_id", "goal_id"], name: "idx_goal_funding_rule_unique_goal", unique: true
+    t.index ["goal_funding_plan_id"], name: "index_goal_funding_rules_on_goal_funding_plan_id"
+    t.index ["goal_id"], name: "index_goal_funding_rules_on_goal_id"
+    t.check_constraint "amount > 0::numeric", name: "chk_goal_funding_rule_amount"
+  end
+
+  create_table "goal_funding_runs", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.datetime "applied_at"
+    t.datetime "created_at", null: false
+    t.uuid "goal_funding_plan_id", null: false
+    t.integer "plan_revision", null: false
+    t.string "reason_code"
+    t.datetime "reversed_at"
+    t.jsonb "review_history", default: [], null: false
+    t.jsonb "rules_snapshot", default: [], null: false
+    t.date "source_date", null: false
+    t.uuid "source_entry_id", null: false
+    t.string "source_fingerprint", null: false
+    t.string "status", default: "pending", null: false
+    t.datetime "updated_at", null: false
+    t.index ["goal_funding_plan_id", "source_entry_id"], name: "idx_goal_funding_run_canonical_source", unique: true
+    t.index ["goal_funding_plan_id", "status"], name: "index_goal_funding_runs_on_goal_funding_plan_id_and_status"
+    t.index ["goal_funding_plan_id"], name: "index_goal_funding_runs_on_goal_funding_plan_id"
+    t.index ["source_entry_id"], name: "index_goal_funding_runs_on_source_entry_id"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'applied'::character varying, 'awaiting_funds'::character varying, 'needs_review'::character varying, 'skipped'::character varying, 'failed'::character varying, 'reversed'::character varying]::text[])", name: "chk_goal_funding_run_status"
   end
 
   create_table "goal_pledges", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -3041,6 +3141,16 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_20_090001) do
   add_foreign_key "fio_items", "families"
   add_foreign_key "goal_accounts", "accounts", on_delete: :restrict
   add_foreign_key "goal_accounts", "goals", on_delete: :cascade
+  add_foreign_key "goal_allocation_changes", "goal_allocations", on_delete: :cascade
+  add_foreign_key "goal_allocations", "families", on_delete: :cascade
+  add_foreign_key "goal_allocations", "users", on_delete: :nullify
+  add_foreign_key "goal_funding_plans", "accounts", column: "backing_account_id", on_delete: :nullify
+  add_foreign_key "goal_funding_plans", "accounts", column: "source_account_id", on_delete: :nullify
+  add_foreign_key "goal_funding_plans", "families", on_delete: :cascade
+  add_foreign_key "goal_funding_plans", "users", on_delete: :nullify
+  add_foreign_key "goal_funding_rules", "goal_funding_plans", on_delete: :cascade
+  add_foreign_key "goal_funding_rules", "goals", on_delete: :nullify
+  add_foreign_key "goal_funding_runs", "goal_funding_plans", on_delete: :cascade
   add_foreign_key "goal_pledges", "accounts", on_delete: :restrict
   add_foreign_key "goal_pledges", "goals", on_delete: :cascade
   add_foreign_key "goal_pledges", "transactions", column: "matched_transaction_id", on_delete: :nullify

@@ -67,6 +67,7 @@ class Goal < ApplicationRecord
   validate :linked_accounts_must_belong_to_family
   validate :currency_locked_once_linked
   validate :restore_must_not_recreate_whole_account_conflict
+  validate :funding_restoration_must_be_backed
   validate :kind_locked_while_released
   validate :kind_locked_once_consumed
   validate :target_must_cover_what_was_consumed
@@ -522,6 +523,18 @@ class Goal < ApplicationRecord
   end
 
   private
+    def funding_restoration_must_be_backed
+      return unless state_changed? && state_in_database.in?(RELEASED_STATES) && !state.in?(RELEASED_STATES)
+      managed_ids = GoalFundingPlan.where(backing_account_id: goal_accounts.map(&:account_id)).pluck(:backing_account_id)
+      goal_accounts.select { |link| managed_ids.include?(link.account_id) }.each do |link|
+        snapshot = Goal::CashReservation.new(link.account.reload, user: Current.user)
+        reason = snapshot.review_reason
+        reason ||= "whole_account_conversion_required" if link.whole_account?
+        reason ||= "insufficient_cash" if snapshot.cash && snapshot.fixed_total + link.allocated_amount.to_d + link.account.goal_operating_floor > snapshot.cash
+        errors.add(:base, I18n.t("goal_funding.errors.#{reason}")) if reason
+      end
+    end
+
     # The family's median monthly spend, in FAMILY currency.
     #
     # ⚠️ The account scope is passed EXPLICITLY, and that is the whole point
@@ -626,52 +639,56 @@ class Goal < ApplicationRecord
     # same old value, both pass the target check, and both add to it — the
     # goal ending up consumed past its target with neither request at fault.
     # The checks below therefore run under the lock, on freshly read values.
-    with_lock do
-      raise ConsumptionRefused.new(:not_active) unless active?
-      raise ConsumptionRefused.new(:exceeds_target) if consumed_amount.to_d + amount > target_amount.to_d
+    self.class.transaction(requires_new: true) do
+      goal_accounts.map(&:account_id).uniq.sort.each { |id| self.class.lock_whole_account_claims!(id) }
+      with_lock do
+        raise ConsumptionRefused.new(:not_active) unless active?
+        raise ConsumptionRefused.new(:exceeds_target) if consumed_amount.to_d + amount > target_amount.to_d
 
-      link.lock!
-      stamp_consumption!(transaction) if transaction
+        link.lock!
+        link.reservation_write_authorized = true
+        stamp_consumption!(transaction) if transaction
 
-      if link.allocated_amount.present?
-        # Refused rather than clamped. Clamping released only what the link
-        # held while `consumed_amount` took the full figure, so the two sides
-        # silently disagreed: money counted as spent that was never released,
-        # and still reserved against every sibling goal on the account.
-        if native_amount > link.allocated_amount.to_d
-          raise ConsumptionRefused.new(:exceeds_earmark)
+        if link.allocated_amount.present?
+          # Refused rather than clamped. Clamping released only what the link
+          # held while `consumed_amount` took the full figure, so the two sides
+          # silently disagreed: money counted as spent that was never released,
+          # and still reserved against every sibling goal on the account.
+          if native_amount > link.allocated_amount.to_d
+            raise ConsumptionRefused.new(:exceeds_earmark)
+          end
+
+          link.update!(allocated_amount: link.allocated_amount.to_d - native_amount)
+        else
+          # A whole-account link has no slice to shrink, so `consumed_amount`
+          # would be added to a backing that has not moved: the goal reads 6,000
+          # of 5,000 until the real transaction lands and the balance catches up.
+          # A fixed earmark never has that window, because shrinking it caps the
+          # backing straight away.
+          #
+          # Spending settles what the link claims. It stops taking "whatever is
+          # there" and takes what the goal still needs after this spend.
+          #
+          # Deliberately NOT "what it backs, minus the amount". That depends on
+          # whether the money has already left the account, and the app cannot
+          # know: a spend recorded before the sync lands needs the subtraction,
+          # the same spend recorded after it has already had one, and taking it
+          # twice reports 4,000 of a 5,000 goal that is whole. Capping at what
+          # is left to reach is the same answer in both orders, with nothing to
+          # infer.
+          backed = account_amount_for(link.account).to_d
+
+          # Same refusal a fixed earmark gives, for the same reason: the link
+          # cannot have supplied money it never backed. `still_needed` cannot go
+          # negative — the target check above has already refused that.
+          raise ConsumptionRefused.new(:exceeds_earmark) if native_amount > backed
+
+          still_needed = target_amount.to_d - consumed_amount.to_d - amount
+          link.update!(allocated_amount: [ backed, still_needed / rate ].min)
         end
 
-        link.update!(allocated_amount: link.allocated_amount.to_d - native_amount)
-      else
-        # A whole-account link has no slice to shrink, so `consumed_amount`
-        # would be added to a backing that has not moved: the goal reads 6,000
-        # of 5,000 until the real transaction lands and the balance catches up.
-        # A fixed earmark never has that window, because shrinking it caps the
-        # backing straight away.
-        #
-        # Spending settles what the link claims. It stops taking "whatever is
-        # there" and takes what the goal still needs after this spend.
-        #
-        # Deliberately NOT "what it backs, minus the amount". That depends on
-        # whether the money has already left the account, and the app cannot
-        # know: a spend recorded before the sync lands needs the subtraction,
-        # the same spend recorded after it has already had one, and taking it
-        # twice reports 4,000 of a 5,000 goal that is whole. Capping at what
-        # is left to reach is the same answer in both orders, with nothing to
-        # infer.
-        backed = account_amount_for(link.account).to_d
-
-        # Same refusal a fixed earmark gives, for the same reason: the link
-        # cannot have supplied money it never backed. `still_needed` cannot go
-        # negative — the target check above has already refused that.
-        raise ConsumptionRefused.new(:exceeds_earmark) if native_amount > backed
-
-        still_needed = target_amount.to_d - consumed_amount.to_d - amount
-        link.update!(allocated_amount: [ backed, still_needed / rate ].min)
+        update!(consumed_amount: consumed_amount.to_d + amount)
       end
-
-      update!(consumed_amount: consumed_amount.to_d + amount)
     end
 
     # `reload` refreshes the columns and leaves the memos standing. Consuming
@@ -1197,6 +1214,15 @@ class Goal < ApplicationRecord
     def apply_state_change_side_effects
       previous_state, next_state = saved_change_to_state
 
+      if previous_state.present? && previous_state != next_state
+        goal_accounts.each do |link|
+          GoalAllocation.record_link_change!(link,
+            before: previous_state.in?(RELEASED_STATES) ? 0.to_d : link.allocated_amount,
+            after: next_state.in?(RELEASED_STATES) ? 0.to_d : link.allocated_amount,
+            reason: I18n.t("goal_funding.audit.goal_state"), metadata: { from_state: previous_state, to_state: next_state })
+        end
+      end
+
       # The memos were cleared at transition time, but anything that read the
       # goal between then and the save will have refilled them from the old
       # state. Cleared again so `current_balance` below is the closing figure.
@@ -1479,6 +1505,7 @@ class Goal < ApplicationRecord
     def lock_whole_account_claims_in_order
       ids = own_whole_account_ids
       ids |= goal_accounts.filter_map { |ga| ga.account_id if ga.will_save_change_to_allocated_amount? }
+      ids |= goal_accounts.map(&:account_id) if will_save_change_to_state?
       ids.compact.uniq.sort.each { |account_id| self.class.lock_whole_account_claims!(account_id) }
     end
 

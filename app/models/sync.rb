@@ -22,6 +22,7 @@ class Sync < ApplicationRecord
   scope :visible, -> { incomplete.where("syncs.created_at > ?", VISIBLE_FOR.ago).where(cancel_requested_at: nil) }
 
   after_commit :update_family_sync_timestamp, on: [ :create, :update ]
+  after_update_commit :checkpoint_goal_funding_cash, if: -> { saved_change_to_status? && completed? && syncable_type == "Account" }
 
   serialize :sync_stats, coder: JSON
 
@@ -327,6 +328,12 @@ class Sync < ApplicationRecord
     end
 
   private
+    def checkpoint_goal_funding_cash
+      return unless syncable
+      Goal::CashReservation.record_reconciliation!(syncable, at: completed_at || Time.current)
+      GoalFundingJob.enqueue(syncable_id)
+    end
+
     def log_status_change
       Rails.logger.info("changing from #{aasm.from_state} to #{aasm.to_state} (event: #{aasm.current_event})")
     end

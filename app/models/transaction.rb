@@ -28,6 +28,20 @@ class Transaction < ApplicationRecord
   accepts_nested_attributes_for :taggings, allow_destroy: true
 
   after_save :clear_merchant_unlinked_association, if: :merchant_id_previously_changed?
+  after_update_commit :review_goal_funding_source
+  after_update :invalidate_goal_funding_pending_cash
+
+  def invalidate_goal_funding_pending_cash
+    return unless entry && saved_change_to_extra? && self.class.pending_extra?(extra_before_last_save) != pending?
+    Account.where(id: entry.account_id).where.not(goal_cash_reconciled_at: nil)
+      .update_all("goal_cash_reconciled_at = NULL, goal_allocation_version = goal_allocation_version + 1")
+  end
+
+  def review_goal_funding_source
+    return unless (previous_changes.keys & %w[kind transfer_id extra merchant_id category_id]).any?
+    return unless entry
+    GoalFundingJob.enqueue(entry.account_id, source_entry_id: entry.id)
+  end
 
   # Accessors for exchange_rate stored in extra jsonb field
   def exchange_rate
