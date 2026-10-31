@@ -26,6 +26,17 @@ module Assistant
     # per-user flag as the surfaces they operate on. Each tool additionally
     # re-checks the family's recurring feature gate and the user's
     # account-access scope itself.
+    Function::GetGoals,
+    Function::UpdateGoal,
+    Function::AdjustGoalAllocations,
+    Function::GetGoalFundingPlans,
+    Function::GetGoalFundingRuns,
+    Function::CreateGoalFundingPlan,
+    Function::UpdateGoalFundingPlan,
+    Function::PreviewGoalFundingPlan,
+    Function::EnableGoalFundingPlan,
+    Function::DisableGoalFundingPlan,
+    Function::ReviewGoalFundingRun,
     Function::GetBills,
     Function::GetBillDetails,
     Function::GetPaycheckPlan,
@@ -38,11 +49,23 @@ module Assistant
   # Guests may view family configuration but not change it, so these tools are
   # left out of a guest's registry (chat and MCP alike).
   FAMILY_CONFIG_FUNCTION_CLASSES = [
+    Function::CreateGoal,
     Function::CreateTag,
     Function::UpdateTag,
     Function::CreateCategory,
     Function::UpdateCategory,
     Function::DeleteCategory
+  ].freeze
+
+  PREVIEW_WRITE_FUNCTION_CLASSES = [
+    Function::UpdateGoal,
+    Function::AdjustGoalAllocations,
+    Function::CreateGoalFundingPlan,
+    Function::UpdateGoalFundingPlan,
+    Function::PreviewGoalFundingPlan,
+    Function::EnableGoalFundingPlan,
+    Function::DisableGoalFundingPlan,
+    Function::ReviewGoalFundingRun
   ].freeze
 
   class << self
@@ -102,7 +125,7 @@ module Assistant
       ]
 
       classes += PREVIEW_FUNCTION_CLASSES if user&.preview_features_enabled?
-      classes -= FAMILY_CONFIG_FUNCTION_CLASSES if user&.guest?
+      classes -= FAMILY_CONFIG_FUNCTION_CLASSES + PREVIEW_WRITE_FUNCTION_CLASSES if user&.guest?
       classes
     end
 

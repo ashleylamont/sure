@@ -62,6 +62,13 @@ class Assistant::Function::CreateGoal < Assistant::Function
           description: "Optional map of account name to the amount to reserve from that account, in that account's currency, e.g. {\"Livret A\": 2000}. Required for an account already claimed in full by another goal — the available accounts list says which, and how much room is left. Accounts left out of this map reserve whatever the account has spare.",
           additionalProperties: { type: "number" }
         },
+        kind: { type: "string", enum: %w[one_off maintained], description: "Defaults to one_off. Maintained reserves require explicit earmarks for every linked account and preview access." },
+        target_mode: { type: "string", enum: %w[fixed months_of_expenses] },
+        target_months: { type: "number" },
+        currency: { type: "string" },
+        versions: Goal::FundingSchema::VERSIONS,
+        idempotency_key: { type: "string" },
+        reason: { type: "string" },
         notes: {
           type: "string",
           description: "Optional freeform notes."
@@ -71,6 +78,7 @@ class Assistant::Function::CreateGoal < Assistant::Function
   end
 
   def call(params = {})
+    Goal::FundingAccess.accounts(user, write: true)
     name = params["name"].to_s.strip
     target_amount = parse_decimal(params["target_amount"])
     target_date = parse_date(params["target_date"])
@@ -90,7 +98,7 @@ class Assistant::Function::CreateGoal < Assistant::Function
       )
     end
 
-    available = family.accounts.where(accountable_type: "Depository").visible.where(name: linked_account_names)
+    available = Goal::FundingAccess.accounts(user, write: true).where(accountable_type: "Depository").where(name: linked_account_names)
     missing = linked_account_names - available.pluck(:name).uniq
     if missing.any?
       return error(
@@ -116,6 +124,17 @@ class Assistant::Function::CreateGoal < Assistant::Function
     end
 
     matched = linked_account_names.map { |name| grouped[name].first }
+
+    if params["kind"] == "maintained"
+      Goal::Funding.new(user)
+      unless matched.all? { |account| params.fetch("earmarks", {}).key?(account.name) }
+        return error("explicit_allocations_required", "Provide an exact opening earmark, including zero, for every maintained reserve account.")
+      end
+      goal = Goal::Configuration.new(user).save!(attributes: params.slice("name", "target_amount", "target_date", "notes", "kind", "target_mode", "target_months", "currency"),
+        allocations: matched.map { |account| { account_id: account.id, amount: params.fetch("earmarks").fetch(account.name), mode: "set" } },
+        versions: params["versions"] || {}, idempotency_key: params["idempotency_key"], reason: params["reason"])
+      return { success: true, goal_id: goal.id, name: goal.name, url: absolute_url_for(goal) }
+    end
 
     # Named before the save, so the assistant gets a reason it can act on
     # rather than a generic validation failure it can only relay. Claiming an
@@ -157,6 +176,10 @@ class Assistant::Function::CreateGoal < Assistant::Function
       linked_account_names: matched.map(&:name),
       message: "Created goal '#{goal.name}' (target #{goal.target_amount_money.format}). View it at #{absolute_url_for(goal)}."
     }
+  rescue Goal::AllocationError => e
+    error(e.code, e.message)
+  rescue ActiveRecord::RecordNotFound
+    error("not_found", "The requested account is unavailable.")
   rescue ActiveRecord::RecordInvalid => e
     error("validation_failed", e.record.errors.full_messages.join("; "))
   end
@@ -196,7 +219,7 @@ class Assistant::Function::CreateGoal < Assistant::Function
     def depository_account_payload
       claimed = whole_account_claimed_ids
 
-      family.accounts.where(accountable_type: "Depository").visible.map do |account|
+      Goal::FundingAccess.accounts(user, write: true).where(accountable_type: "Depository").map do |account|
         {
           name: account.name,
           currency: account.currency,

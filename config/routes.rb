@@ -775,6 +775,27 @@ Rails.application.routes.draw do
       post "auth/sso_create_account", to: "auth#sso_create_account"
       patch "auth/enable_ai", to: "auth#enable_ai"
 
+      resources :goals, only: %i[index show create update destroy]
+      resources :goal_allocations, only: :create do
+        post :preview, on: :collection
+      end
+      resources :goal_funding_plans, only: %i[index show create update] do
+        member do
+          get :preview
+          post :enable
+          post :disable
+        end
+        resources :goal_funding_runs, only: :index
+      end
+      resources :goal_funding_runs, only: :show do
+        member do
+          get :preview
+          post :retry
+          post :skip
+          post :reverse
+        end
+      end
+
       # Production API endpoints
       resources :accounts, only: [ :index, :show ]
       resources :balances, only: [ :index, :show ]
