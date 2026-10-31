@@ -1,0 +1,23 @@
+<div class="space-y-6 pb-6">
+  <%= render "goal_funding/header", title: t("goal_funding.adjust") %>
+  <%= styled_form_with url: new_goal_allocation_path, method: :get do |f| %>
+    <%= f.select :account_id, @accounts.map { |account| [account.name, account.id] }, { label: t("goal_funding.account"), selected: @account&.id } %>
+    <%= f.submit t("goal_funding.choose_account") %>
+  <% end %>
+  <% if @account %>
+    <%= render "goal_funding/account", data: Goal::CashReservation.new(@account, user: Current.user).as_json %>
+    <%= render DS::Card.new do %>
+      <%= styled_form_with scope: :allocation, url: preview_goal_allocations_path, class: "space-y-4", data: { turbo: false } do |f| %>
+        <%= f.hidden_field :account_id, value: @account.id %>
+        <%= f.hidden_field :version, value: @account.goal_allocation_version %>
+        <%= f.hidden_field :idempotency_key, value: @key %>
+        <%= f.select :mode, %w[set add release move floor].map { |mode| [t("goal_funding.modes.#{mode}"), mode] }, { label: t("goal_funding.action") } %>
+        <%= f.select :goal_id, @goals.map { |goal| [goal.name, goal.id] }, { label: t("goal_funding.purpose"), include_blank: true } %>
+        <%= f.select :destination_goal_id, @goals.map { |goal| [goal.name, goal.id] }, { label: t("goal_funding.destination"), include_blank: true } %>
+        <%= f.number_field :amount, label: t("goal_funding.amount_in_currency", currency: @account.currency), required: true, min: 0, step: "0.0001" %>
+        <%= f.text_field :reason, label: t("goal_funding.reason"), required: true, maxlength: 1000 %>
+        <%= f.submit t("goal_funding.preview") %>
+      <% end %>
+    <% end %>
+  <% end %>
+</div>

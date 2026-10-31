@@ -1,0 +1,180 @@
+en:
+  goal_funding:
+    title: Cash reservations & payday funding
+    explanation: Reserve cash already in your accounts. Targets and payday contributions are separate. These actions
+      never transfer money or increase your spending allowance.
+    adjust: Adjust reservations
+    new_plan: New payday plan
+    edit_plan: Edit payday plan
+    goals: Goals
+    plans: Payday plans
+    history: Reservation audit
+    purpose: Purpose
+    reserved_now: Reserved now
+    target: Target balance
+    enabled: Enabled
+    disabled: Disabled
+    disable: Disable plan
+    enable: Enable automatic funding
+    date: Date
+    account: Account
+    before: Before
+    after: After
+    reason: Reason
+    floor: Operating cash floor
+    operating_floor: Operating cash floor
+    cash: Reconciled cash
+    fixed_reserved: Fixed reservations
+    unallocated: Unallocated cash
+    shortage: Shortfall
+    unknown_cash: Not yet known
+    private_purpose: Private purpose
+    reconciled: 'Last reconciled: %{date}'
+    reservations: Current reservations
+    whole_account: Account remainder — review required
+    add_each_payday: Add each payday
+    stop_at_target: Stop at target
+    'yes': 'Yes'
+    'no': 'No'
+    total: 'Total contribution: %{amount}'
+    after_funding: 'Unallocated after proposed changes: %{amount}'
+    matches: Recent matching salary descriptions (preview only)
+    amount: Amount
+    salary_source: Salary source
+    choose_account: Choose account
+    action: Action
+    destination: Destination purpose (move only)
+    amount_in_currency: Amount (%{currency})
+    preview: Preview changes
+    changes: Proposed reservation changes
+    apply: Apply reviewed changes
+    confirm_conversion: I reviewed the existing remainder claim and confirm replacing it with this exact reservation.
+    name: Plan name
+    backing_account: Savings account backing the reservations
+    salary_sample: Real ordinary-salary sample
+    exact_description: Exact salary description (blank uses the selected sample)
+    source_hint: Use the ordinary payroll descriptor, not an employer name shared with equity proceeds. Matching
+      normalizes whitespace and uses existing provider description matching.
+    notes_marker: Required literal notes marker (optional)
+    minimum_salary: Minimum ordinary salary (account currency)
+    maximum_salary: Maximum ordinary salary (account currency)
+    effective_on: Effective start date
+    start_boundary: Only future confirmed salary dates are eligible. Activation starts no earlier than the next
+      day in your family timezone. Historical matches shown here are never backfilled.
+    contribution_for: Payday amount for %{name}
+    stop_for: Stop at target for %{name}
+    save_draft: Save disabled draft and preview
+    starts_on: Automatic funding starts no earlier than %{date}.
+    confirm_salary: I verified the sample and matches identify ordinary salary, exclude equity/bonus receipts, and
+      confirm these contributions once per matching salary transaction.
+    runs: Funding runs
+    status: Status
+    run_title: Payday funding on %{date}
+    reversal_hint: This releases the original contribution only if enough cash remains reserved. It never reverses
+      the salary transaction.
+    reverse: Preview / reverse reservation changes
+    retry: Apply reviewed retry
+    skip: Skip this run
+    saved: Reservation changes applied. No bank money was moved.
+    enabled_notice: Automatic funding enabled for future eligible salaries.
+    disabled_notice: Funding disabled. Reservations and history are preserved.
+    run_reviewed: Funding run reviewed. Check its resulting status.
+    modes:
+      set: Set exact reservation
+      add: Set aside additional cash
+      release: Release reserved cash
+      move: Move between purposes
+      floor: Set operating cash floor
+    statuses:
+      pending: Pending
+      applied: Applied
+      awaiting_funds: Waiting for funds
+      needs_review: Needs review
+      skipped: Skipped
+      failed: Failed before application
+      reversed: Reversed
+    audit:
+      goal_edit: Goal reservation edited
+      payday: Confirmed payday funding
+      reversal: Reviewed payday funding reversal
+      goal_state: Goal reservation state changed
+    reasons:
+      cash_not_reconciled: Cash has not been reconciled. Sync the backing account before reserving additional cash.
+      pending_cash: Pending transactions make available cash uncertain. Review after the account has reconciled.
+      cash_sync_incomplete: Account reconciliation is still running. Review after it completes.
+      whole_account_conversion_required: An existing goal claims an account remainder. Review and convert it to
+        an exact reservation before enabling funding.
+      insufficient_cash: There is not enough unallocated cash for all contributions. Nothing has been allocated.
+      goal_not_fundable: A goal is paused, released, missing or uses another currency. Existing reservations remain
+        protected.
+      configuration_changed: The configuration or target gap changed. Review a fresh preview before retrying.
+      permission_changed: An account or goal is no longer accessible to the plan owner. Review access before retrying.
+      plan_disabled: This plan is disabled. Existing reservations and history are preserved.
+      source_changed: The salary source changed or was removed. Review the applied reservation; no cash was automatically
+        clawed back.
+      newer_payday: A newer payday exists. This older run requires explicit review; it will not be applied as a
+        backlog.
+      allocation_failed: The reservation changes failed and were rolled back. Review before retrying.
+      user_skipped: Skipped by the plan owner.
+      user_reversed: Reversed using compensating reservation changes.
+      source_not_reconciled: The salary account has not finished reconciling. Funding will be evaluated after its
+        confirmed data commits.
+      review_required: Review this run and its current cash preview before making further changes.
+    errors:
+      cash_not_reconciled: Cash has not been reconciled. Sync the backing account before reserving additional cash.
+      pending_cash: Pending transactions make available cash uncertain. Review after the account has reconciled.
+      cash_sync_incomplete: Account reconciliation is still running. Review after it completes.
+      whole_account_conversion_required: An existing goal claims an account remainder. Review and convert it to
+        an exact reservation before enabling funding.
+      insufficient_cash: There is not enough unallocated cash for all contributions. Nothing has been allocated.
+      goal_not_fundable: A goal is paused, released, missing or uses another currency. Existing reservations remain
+        protected.
+      configuration_changed: The configuration or target gap changed. Review a fresh preview before retrying.
+      permission_changed: An account or goal is no longer accessible to the plan owner. Review access before retrying.
+      plan_disabled: This plan is disabled. Existing reservations and history are preserved.
+      source_changed: The salary source changed or was removed. Review the applied reservation; no cash was automatically
+        clawed back.
+      newer_payday: A newer payday exists. This older run requires explicit review; it will not be applied as a
+        backlog.
+      allocation_failed: The reservation changes failed and were rolled back. Review before retrying.
+      user_skipped: Skipped by the plan owner.
+      user_reversed: Reversed using compensating reservation changes.
+      forbidden: You do not have permission to change these reservations.
+      invalid_amount: Enter a finite nonnegative amount with at most four decimal places.
+      invalid_adjustment: Check the reservation operation and its account and goal.
+      reason_required: Provide a reason of at most 1,000 characters.
+      idempotency_required: Provide a request key of at most 200 characters.
+      duplicate_allocation: Only one operation per account and goal is allowed in a request.
+      stale_preview: The preview expired or the underlying data changed. Preview again.
+      conversion_confirmation_required: Explicitly confirm the reviewed conversion from a remainder claim to a fixed
+        reservation.
+      currency_mismatch: The source, backing account and goals must use the same currency.
+      stale_state: The record changed. Refresh its version and preview again.
+      version_required: Provide current account versions from the reservation overview.
+      exceeds_reservation: The release exceeds the cash still reserved for this purpose.
+      conversion_requires_exact_amount: Converting an account remainder requires setting an exact amount.
+      idempotency_mismatch: This request key was already used with a different payload. Use a new key for a new
+        request.
+      preview_required: Review a fresh preview and confirm before continuing.
+      run_not_retryable: This run cannot be retried.
+      run_already_applied: This run already applied. Review a compensating reversal instead.
+      run_not_reversible: This run has no applied reservation changes to reverse.
+      linked_accounts_required: Choose at least one backing account.
+      preview_disabled: Enable preview features in Preferences to use goal funding.
+      use_reservation_controls: This account has a payday funding plan. Use Cash reservations to review and change
+        earmarks safely.
+      source_not_reconciled: The salary account has not finished reconciling. Funding will be evaluated after its
+        confirmed data commits.
+    applied_on: Reservation changes applied on %{date}.
+    recorded_changes: Original run snapshot
+    recorded_amount: Recorded contribution
+  activerecord:
+    errors:
+      models:
+        goal_funding_plan:
+          attributes:
+            base:
+              funding_rules_required: Add between one and thirty positive fixed contribution rules.
+              duplicate_funding_goal: A goal can appear only once in a plan.
+              funding_access_invalid: All goals and accounts must be accessible with the required permissions and
+                use the same currency.

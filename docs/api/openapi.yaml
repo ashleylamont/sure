@@ -4719,6 +4719,381 @@ components:
       properties:
         error:
           type: string
+    GoalWrite:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+        kind:
+          type: string
+          enum:
+          - one_off
+          - maintained
+        target_mode:
+          type: string
+          enum:
+          - fixed
+          - months_of_expenses
+        target_amount:
+          type: string
+          pattern: "^\\d+(\\.\\d{1,4})?$"
+          description: Exact nonnegative amount in the account currency; at most four
+            decimal places.
+        target_months:
+          type: number
+        target_date:
+          type: string
+          format: date
+        notes:
+          type: string
+        color:
+          type: string
+        icon:
+          type: string
+        currency:
+          type: string
+        allocations:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - account_id
+            - amount
+            properties:
+              account_id:
+                type: string
+                format: uuid
+              amount:
+                type: string
+                pattern: "^\\d+(\\.\\d{1,4})?$"
+                description: Exact nonnegative amount in the account currency; at
+                  most four decimal places.
+              mode:
+                type: string
+                enum:
+                - set
+                - add
+                - release
+        versions:
+          type: object
+          additionalProperties:
+            type: integer
+          description: Account UUID to version from get_goals/preview. Required when
+            applying.
+        idempotency_key:
+          type: string
+        reason:
+          type: string
+        version:
+          type: string
+    GoalFundingPlanWrite:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+        revision:
+          type: integer
+        backing_account_id:
+          type: string
+          format: uuid
+        sample_entry_id:
+          type: string
+          format: uuid
+        source_name:
+          type: string
+          description: Exact ordinary-payroll description; never just an employer
+            name shared with equity payments.
+        source_notes:
+          type: string
+        minimum_salary:
+          type: string
+          pattern: "^\\d+(\\.\\d{1,4})?$"
+          description: Exact nonnegative amount in the account currency; at most four
+            decimal places.
+        maximum_salary:
+          type: string
+          pattern: "^\\d+(\\.\\d{1,4})?$"
+          description: Exact nonnegative amount in the account currency; at most four
+            decimal places.
+        effective_on:
+          type: string
+          format: date
+        rules:
+          type: array
+          minItems: 1
+          maxItems: 30
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - goal_id
+            - amount
+            properties:
+              goal_id:
+                type: string
+                format: uuid
+              amount:
+                type: string
+                pattern: "^\\d+(\\.\\d{1,4})?$"
+                description: Exact nonnegative amount in the account currency; at
+                  most four decimal places.
+              stop_at_target:
+                type: boolean
+    GoalAllocationRequest:
+      type: object
+      required:
+      - adjustments
+      - idempotency_key
+      - reason
+      properties:
+        adjustments:
+          type: array
+          maxItems: 30
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - goal_id
+            - account_id
+            - amount
+            properties:
+              goal_id:
+                type: string
+                format: uuid
+              account_id:
+                type: string
+                format: uuid
+              amount:
+                type: string
+                pattern: "^\\d+(\\.\\d{1,4})?$"
+                description: Exact nonnegative amount in the account currency; at
+                  most four decimal places.
+              mode:
+                type: string
+                enum:
+                - set
+                - add
+                - release
+        versions:
+          type: object
+          additionalProperties:
+            type: integer
+          description: Account UUID to version from get_goals/preview. Required when
+            applying.
+        floors:
+          type: object
+          additionalProperties:
+            type: string
+            pattern: "^\\d+(\\.\\d{1,4})?$"
+            description: Exact nonnegative amount in the account currency; at most
+              four decimal places.
+        idempotency_key:
+          type: string
+        reason:
+          type: string
+        preview_token:
+          type: string
+        confirm_conversion:
+          type: boolean
+    GoalRecord:
+      type: object
+      required:
+      - id
+      - name
+      - kind
+      - state
+      - currency
+      - target_amount
+      - effective_backing
+      - version
+      - allocations
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        kind:
+          type: string
+          enum:
+          - one_off
+          - maintained
+        state:
+          type: string
+        currency:
+          type: string
+        target_amount:
+          type: string
+        effective_backing:
+          type: string
+        version:
+          type: string
+        allocations:
+          type: array
+          items:
+            type: object
+            properties:
+              account_id:
+                type: string
+                format: uuid
+              reserved:
+                type: string
+                nullable: true
+              account_version:
+                type: integer
+              whole_account:
+                type: boolean
+    GoalCashReservation:
+      type: object
+      properties:
+        account_id:
+          type: string
+          format: uuid
+        currency:
+          type: string
+        cash:
+          type: string
+          nullable: true
+        reconciled_at:
+          type: string
+          format: date-time
+          nullable: true
+        fixed_reserved:
+          type: string
+        operating_floor:
+          type: string
+        unallocated:
+          type: string
+        shortage:
+          type: string
+        version:
+          type: integer
+        review_reason:
+          type: string
+          nullable: true
+        reservations:
+          type: array
+          items:
+            type: object
+    GoalFundingPlanRecord:
+      type: object
+      required:
+      - id
+      - name
+      - enabled
+      - revision
+      - rules
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        enabled:
+          type: boolean
+        revision:
+          type: integer
+        rules:
+          type: array
+          items:
+            type: object
+        effective_on:
+          type: string
+          format: date
+        automatic_start_on:
+          type: string
+          format: date
+        backing_account_id:
+          type: string
+          format: uuid
+        source_account_id:
+          type: string
+          format: uuid
+        sample_entry_id:
+          type: string
+          format: uuid
+        minimum_salary:
+          type: string
+        maximum_salary:
+          type: string
+        currency:
+          type: string
+    GoalFundingRunRecord:
+      type: object
+      required:
+      - id
+      - status
+      - source_entry_id
+      - plan_revision
+      - rules_snapshot
+      properties:
+        id:
+          type: string
+          format: uuid
+        source_entry_id:
+          type: string
+          format: uuid
+        goal_funding_plan_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+          - pending
+          - applied
+          - awaiting_funds
+          - needs_review
+          - skipped
+          - failed
+          - reversed
+        reason_code:
+          type: string
+          nullable: true
+        plan_revision:
+          type: integer
+        rules_snapshot:
+          type: array
+          items:
+            type: object
+        applied_at:
+          type: string
+          format: date-time
+          nullable: true
+        reversed_at:
+          type: string
+          format: date-time
+          nullable: true
+    GoalFundingPreview:
+      type: object
+      required:
+      - preview_token
+      - allowed
+      - rules
+      - account
+      - total
+      properties:
+        preview_token:
+          type: string
+        allowed:
+          type: boolean
+        reason_code:
+          type: string
+          nullable: true
+        account:
+          "$ref": "#/components/schemas/GoalCashReservation"
+        rules:
+          type: array
+          items:
+            type: object
+        total:
+          type: string
+        matches:
+          type: array
+          items:
+            type: object
 paths:
   "/api/v1/accounts":
     get:
@@ -7273,6 +7648,502 @@ paths:
           application/json:
             schema:
               "$ref": "#/components/schemas/FinancekitConflictResolution"
+        required: true
+  "/api/v1/goal_allocations":
+    post:
+      summary: Apply atomic reservation changes
+      tags:
+      - Goal funding
+      security:
+      - apiKeyAuth: []
+      parameters: []
+      responses:
+        '200':
+          description: Apply atomic reservation changes
+          content:
+            application/json:
+              schema:
+                type: object
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - allocation
+              properties:
+                allocation:
+                  "$ref": "#/components/schemas/GoalAllocationRequest"
+        required: true
+  "/api/v1/goal_allocations/preview":
+    post:
+      summary: Preview reservation changes without writes
+      tags:
+      - Goal funding
+      security:
+      - apiKeyAuth: []
+      parameters: []
+      responses:
+        '200':
+          description: Preview reservation changes without writes
+          content:
+            application/json:
+              schema:
+                type: object
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - allocation
+              properties:
+                allocation:
+                  "$ref": "#/components/schemas/GoalAllocationRequest"
+        required: true
+  "/api/v1/goal_funding_plans":
+    get:
+      summary: List your accessible plans
+      tags:
+      - Goal funding
+      security:
+      - apiKeyAuth: []
+      responses:
+        '200':
+          description: List your accessible plans
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plans:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/GoalFundingPlanRecord"
+    post:
+      summary: Create a disabled plan
+      tags:
+      - Goal funding
+      security:
+      - apiKeyAuth: []
+      parameters: []
+      responses:
+        '201':
+          description: Create a disabled plan
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/GoalFundingPlanRecord"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - plan
+              properties:
+                plan:
+                  "$ref": "#/components/schemas/GoalFundingPlanWrite"
+        required: true
+  "/api/v1/goal_funding_plans/{id}":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      summary: Read a plan
+      tags:
+      - Goal funding
+      security:
+      - apiKeyAuth: []
+      responses:
+        '200':
+          description: Read a plan
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/GoalFundingPlanRecord"
+    patch:
+      summary: Update and disable a plan pending fresh confirmation
+      tags:
+      - Goal funding
+      security:
+      - apiKeyAuth: []
+      parameters: []
+      responses:
+        '200':
+          description: Update and disable a plan pending fresh confirmation
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/GoalFundingPlanRecord"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                plan:
+                  allOf:
+                  - "$ref": "#/components/schemas/GoalFundingPlanWrite"
+                  - type: object
+                    properties:
+                      revision:
+                        type: integer
+        required: true
+  "/api/v1/goal_funding_plans/{id}/preview":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      summary: Preview salary matches and cash availability
+      tags:
+      - Goal funding
+      security:
+      - apiKeyAuth: []
+      responses:
+        '200':
+          description: Preview salary matches and cash availability
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/GoalFundingPreview"
+  "/api/v1/goal_funding_plans/{id}/enable":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Explicitly enable future payday funding
+      tags:
+      - Goal funding
+      security:
+      - apiKeyAuth: []
+      parameters: []
+      responses:
+        '200':
+          description: Explicitly enable future payday funding
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/GoalFundingPlanRecord"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - preview_token
+              - confirm_salary_source
+              properties:
+                preview_token:
+                  type: string
+                confirm_salary_source:
+                  type: boolean
+        required: true
+  "/api/v1/goal_funding_plans/{id}/disable":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Disable funding and preserve reservations
+      tags:
+      - Goal funding
+      security:
+      - apiKeyAuth: []
+      responses:
+        '200':
+          description: Disable funding and preserve reservations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  enabled:
+                    type: boolean
+  "/api/v1/goal_funding_plans/{goal_funding_plan_id}/goal_funding_runs":
+    parameters:
+    - name: goal_funding_plan_id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      summary: List the latest funding runs
+      tags:
+      - Goal funding
+      security:
+      - apiKeyAuth: []
+      responses:
+        '200':
+          description: List the latest funding runs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  runs:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/GoalFundingRunRecord"
+  "/api/v1/goal_funding_runs/{id}":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      summary: Read a funding run
+      tags:
+      - Goal funding
+      security:
+      - apiKeyAuth: []
+      responses:
+        '200':
+          description: Read a funding run
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/GoalFundingRunRecord"
+  "/api/v1/goal_funding_runs/{id}/preview":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      summary: Preview a retry or compensating reversal
+      tags:
+      - Goal funding
+      security:
+      - apiKeyAuth: []
+      parameters:
+      - name: operation
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - retry
+          - reverse
+      responses:
+        '200':
+          description: Preview a retry or compensating reversal
+          content:
+            application/json:
+              schema:
+                type: object
+  "/api/v1/goal_funding_runs/{id}/retry":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Retry using a fresh reviewed preview
+      tags:
+      - Goal funding
+      security:
+      - apiKeyAuth: []
+      parameters: []
+      responses:
+        '422':
+          description: Retry using a fresh reviewed preview
+          content:
+            application/json:
+              schema:
+                type: object
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - preview_token
+              properties:
+                preview_token:
+                  type: string
+        required: true
+  "/api/v1/goal_funding_runs/{id}/skip":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Skip an unapplied run
+      tags:
+      - Goal funding
+      security:
+      - apiKeyAuth: []
+      responses:
+        '200':
+          description: Skip an unapplied run
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/GoalFundingRunRecord"
+  "/api/v1/goal_funding_runs/{id}/reverse":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Compensate an applied run without moving bank money
+      tags:
+      - Goal funding
+      security:
+      - apiKeyAuth: []
+      parameters: []
+      responses:
+        '422':
+          description: Compensate an applied run without moving bank money
+          content:
+            application/json:
+              schema:
+                type: object
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - preview_token
+              properties:
+                preview_token:
+                  type: string
+        required: true
+  "/api/v1/goals":
+    get:
+      summary: List visible goals and cash reservations
+      tags:
+      - Goal funding
+      security:
+      - apiKeyAuth: []
+      responses:
+        '200':
+          description: List visible goals and cash reservations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  goals:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/GoalRecord"
+                  accounts:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/GoalCashReservation"
+    post:
+      summary: Create a goal with explicit reservations
+      tags:
+      - Goal funding
+      security:
+      - apiKeyAuth: []
+      parameters: []
+      responses:
+        '201':
+          description: Create a goal with explicit reservations
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/GoalRecord"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - goal
+              properties:
+                goal:
+                  "$ref": "#/components/schemas/GoalWrite"
+        required: true
+  "/api/v1/goals/{id}":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      summary: Read a visible goal
+      tags:
+      - Goal funding
+      security:
+      - apiKeyAuth: []
+      responses:
+        '200':
+          description: Read a visible goal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/GoalRecord"
+    patch:
+      summary: Update a goal using its version
+      tags:
+      - Goal funding
+      security:
+      - apiKeyAuth: []
+      parameters: []
+      responses:
+        '200':
+          description: Update a goal using its version
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/GoalRecord"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - goal
+              properties:
+                goal:
+                  "$ref": "#/components/schemas/GoalWrite"
+        required: true
+    delete:
+      summary: Delete a goal and retain its audit
+      tags:
+      - Goal funding
+      security:
+      - apiKeyAuth: []
+      parameters: []
+      responses:
+        '204':
+          description: Delete a goal and retain its audit
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - version
+              properties:
+                version:
+                  type: string
         required: true
   "/api/v1/holdings":
     get:

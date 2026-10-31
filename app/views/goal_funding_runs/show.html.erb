@@ -1,0 +1,37 @@
+<div class="space-y-6 pb-6">
+  <%= render "goal_funding/header", title: t("goal_funding.run_title", date: l(@run.source_date)) %>
+  <p class="text-lg text-primary"><%= t("goal_funding.statuses.#{@run.status}") %></p>
+  <% if @run.applied_at %>
+    <p class="text-sm text-primary"><%= t("goal_funding.applied_on", date: l(@run.applied_at, format: :short)) %></p>
+  <% end %>
+  <%= render DS::Table.new(rows: @run.rules_snapshot, label: t("goal_funding.recorded_changes")) do |table| %>
+    <% table.with_column(t("goal_funding.purpose")) { |rule| rule["goal_name"] } %>
+    <% table.with_column(t("goal_funding.recorded_amount"), numeric: true) { |rule| funding_money(rule["amount"], rule["currency"]) } %>
+  <% end %>
+  <%= render DS::Alert.new(variant: "warning", message: funding_reason(@run.reason_code)) if @run.reason_code %>
+  <% if @reversing %>
+    <%= render DS::Alert.new(variant: "info", message: t("goal_funding.reversal_hint")) %>
+    <%= render DS::Table.new(rows: @preview[:changes], label: t("goal_funding.changes")) do |table| %>
+      <% table.with_column(t("goal_funding.purpose")) { |change| funding_goal_name(change[:goal_id]) } %>
+      <% table.with_column(t("goal_funding.before"), numeric: true) { |change| change[:before_amount] } %>
+      <% table.with_column(t("goal_funding.after"), numeric: true) { |change| change[:after_amount] } %>
+    <% end %>
+    <%= styled_form_with url: reverse_goal_funding_run_path(@run) do |f| %>
+      <%= f.hidden_field :preview_token, value: @preview[:preview_token] %>
+      <%= f.submit t("goal_funding.reverse") %>
+    <% end %>
+  <% else %>
+    <%= render "goal_funding/preview", preview: @preview %>
+    <div class="flex flex-wrap gap-2">
+      <% if @run.applied_at && !@run.reversed_at %>
+        <%= render DS::Link.new(text: t("goal_funding.reverse"), href: goal_funding_run_path(@run, operation: "reverse"), variant: :secondary) %>
+      <% elsif !@run.applied_at && !%w[skipped reversed].include?(@run.status) %>
+        <%= styled_form_with url: retry_goal_funding_run_path(@run) do |f| %>
+          <%= f.hidden_field :preview_token, value: @preview[:preview_token] %>
+          <%= render DS::Button.new(text: t("goal_funding.retry"), type: :submit) %>
+        <% end %>
+        <%= render DS::Button.new(text: t("goal_funding.skip"), href: skip_goal_funding_run_path(@run), method: :post, variant: :secondary) %>
+      <% end %>
+    </div>
+  <% end %>
+</div>

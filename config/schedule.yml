@@ -4,6 +4,13 @@
 # the worker then fails with `undefined method 'jid='` (we-promise/sure#1442).
 # import_market_data is scheduled dynamically by MarketDataScheduler.
 
+recover_goal_funding:
+  cron: "*/15 * * * *"
+  class: "RecoverGoalFundingJob"
+  active_job: true
+  queue: "scheduled"
+  description: "Recovers missed salary evaluations and retries waiting reservation funding"
+
 clean_syncs:
   cron: "0 * * * *" # every hour
   class: "SyncCleanerJob"

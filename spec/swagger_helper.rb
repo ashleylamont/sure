@@ -1983,5 +1983,60 @@ RSpec.configure do |config|
     JSON.parse(Rails.root.join("docs/api/financekit/schemas.json").read)
   )
 
+  config.openapi_specs["openapi.yaml"][:components][:schemas].merge!(
+    GoalWrite: Goal::FundingSchema::GOAL,
+    GoalFundingPlanWrite: Goal::FundingSchema::PLAN,
+    GoalAllocationRequest: {
+      type: :object, required: %w[adjustments idempotency_key reason], properties: {
+        adjustments: { type: :array, maxItems: 30, items: Goal::FundingSchema::ADJUSTMENT },
+        versions: Goal::FundingSchema::VERSIONS, floors: { type: :object, additionalProperties: Goal::FundingSchema::MONEY },
+        idempotency_key: { type: :string }, reason: { type: :string }, preview_token: { type: :string }, confirm_conversion: { type: :boolean }
+      }
+    },
+    GoalRecord: {
+      type: :object, required: %w[id name kind state currency target_amount effective_backing version allocations], properties: {
+        id: Goal::FundingSchema::ID, name: { type: :string }, kind: { type: :string, enum: %w[one_off maintained] },
+        state: { type: :string }, currency: { type: :string }, target_amount: { type: :string },
+        effective_backing: { type: :string }, version: { type: :string },
+        allocations: { type: :array, items: { type: :object, properties: {
+          account_id: Goal::FundingSchema::ID, reserved: { type: :string, nullable: true },
+          account_version: { type: :integer }, whole_account: { type: :boolean }
+        } } }
+      }
+    },
+    GoalCashReservation: {
+      type: :object, properties: {
+        account_id: Goal::FundingSchema::ID, currency: { type: :string }, cash: { type: :string, nullable: true },
+        reconciled_at: { type: :string, format: :'date-time', nullable: true },
+        fixed_reserved: { type: :string }, operating_floor: { type: :string }, unallocated: { type: :string }, shortage: { type: :string },
+        version: { type: :integer }, review_reason: { type: :string, nullable: true }, reservations: { type: :array, items: { type: :object } }
+      }
+    },
+    GoalFundingPlanRecord: {
+      type: :object, required: %w[id name enabled revision rules], properties: {
+        id: Goal::FundingSchema::ID, name: { type: :string }, enabled: { type: :boolean }, revision: { type: :integer },
+        rules: { type: :array, items: { type: :object } }, effective_on: { type: :string, format: :date },
+        automatic_start_on: { type: :string, format: :date }, backing_account_id: Goal::FundingSchema::ID,
+        source_account_id: Goal::FundingSchema::ID, sample_entry_id: Goal::FundingSchema::ID,
+        minimum_salary: { type: :string }, maximum_salary: { type: :string }, currency: { type: :string }
+      }
+    },
+    GoalFundingRunRecord: {
+      type: :object, required: %w[id status source_entry_id plan_revision rules_snapshot], properties: {
+        id: Goal::FundingSchema::ID, source_entry_id: Goal::FundingSchema::ID, goal_funding_plan_id: Goal::FundingSchema::ID,
+        status: { type: :string, enum: GoalFundingRun::STATUSES }, reason_code: { type: :string, nullable: true },
+        plan_revision: { type: :integer }, rules_snapshot: { type: :array, items: { type: :object } },
+        applied_at: { type: :string, format: :'date-time', nullable: true }, reversed_at: { type: :string, format: :'date-time', nullable: true }
+      }
+    },
+    GoalFundingPreview: {
+      type: :object, required: %w[preview_token allowed rules account total], properties: {
+        preview_token: { type: :string }, allowed: { type: :boolean }, reason_code: { type: :string, nullable: true },
+        account: { '$ref' => '#/components/schemas/GoalCashReservation' }, rules: { type: :array, items: { type: :object } },
+        total: { type: :string }, matches: { type: :array, items: { type: :object } }
+      }
+    }
+  )
+
   config.openapi_format = :yaml
 end

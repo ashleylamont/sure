@@ -1,0 +1,30 @@
+<%= render DS::Card.new do %>
+  <%= styled_form_with scope: :plan, model: @plan, url: @plan.persisted? ? goal_funding_plan_path(@plan) : goal_funding_plans_path, class: "space-y-4" do |f| %>
+    <%= f.hidden_field :revision %>
+    <%= f.text_field :name, label: t("goal_funding.name"), required: true %>
+    <%= f.select :backing_account_id, @accounts.map { |account| [account.name, account.id] }, { label: t("goal_funding.backing_account"), include_blank: true }, required: true %>
+    <%= f.select :sample_entry_id, @samples.map { |entry| [funding_sample_label(entry), entry.id] }, { label: t("goal_funding.salary_sample"), include_blank: true }, required: true %>
+    <%= f.text_field :source_name, label: t("goal_funding.exact_description"), help_text: t("goal_funding.source_hint") %>
+    <%= f.text_field :source_notes, label: t("goal_funding.notes_marker") %>
+    <%= f.number_field :minimum_salary, label: t("goal_funding.minimum_salary"), required: true, min: "0.0001", step: "0.0001" %>
+    <%= f.number_field :maximum_salary, label: t("goal_funding.maximum_salary"), required: true, min: "0.0001", step: "0.0001" %>
+    <%= f.date_field :effective_on, label: t("goal_funding.effective_on"), required: true %>
+    <%= render DS::Alert.new(variant: "info", message: t("goal_funding.start_boundary")) %>
+    <%= render DS::Table.new(rows: @goals, label: t("goal_funding.add_each_payday")) do |table| %>
+      <% table.with_column(t("goal_funding.purpose")) { |goal| goal.name } %>
+      <% table.with_column(t("goal_funding.target"), numeric: true) { |goal| funding_money(goal.target_amount, goal.currency) } %>
+      <% table.with_column(t("goal_funding.add_each_payday")) do |goal| %>
+        <%= fields_for "plan[rules][#{goal.id}]", nil, builder: StyledFormBuilder do |rule_form| %>
+          <%= rule_form.number_field :amount, value: funding_rule(@plan, goal)&.amount, min: "0.0001", step: "0.0001", label: t("goal_funding.contribution_for", name: goal.name) %>
+        <% end %>
+      <% end %>
+      <% table.with_column(t("goal_funding.stop_at_target")) do |goal| %>
+        <%= fields_for "plan[rules][#{goal.id}]", nil, builder: StyledFormBuilder do |rule_form| %>
+          <%= rule_form.check_box :stop_at_target, checked: funding_rule(@plan, goal)&.stop_at_target? %>
+          <%= rule_form.label :stop_at_target, t("goal_funding.stop_for", name: goal.name) %>
+        <% end %>
+      <% end %>
+    <% end %>
+    <%= f.submit t("goal_funding.save_draft") %>
+  <% end %>
+<% end %>

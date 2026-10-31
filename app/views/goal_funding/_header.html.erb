@@ -1,0 +1,9 @@
+<%# locals: (title:) %>
+<header class="space-y-2">
+  <div class="flex items-center gap-2">
+    <h1 class="text-2xl font-semibold text-primary"><%= title %></h1>
+    <%= render DS::Pill.new(label: t("shared.preview")) %>
+  </div>
+  <p class="text-sm text-secondary"><%= t("goal_funding.explanation") %></p>
+  <%= render DS::Link.new(text: t("goal_funding.title"), href: goal_funding_path, variant: :ghost, icon: "arrow-left") %>
+</header>

@@ -17,6 +17,10 @@
                        method: goal.persisted? ? :patch : :post,
                        class: "space-y-5",
                        data: { action: "submit->goal-form#validateOnSubmit" } do |f| %>
+    <% if funding_managed_account_ids.any? %>
+      <%= render DS::Alert.new(variant: "info", message: t("goal_funding.errors.use_reservation_controls")) %>
+      <%= render DS::Link.new(text: t("goal_funding.adjust"), href: goal_funding_path, variant: :ghost, data: { turbo_frame: "_top" }) %>
+    <% end %>
     <div class="flex justify-center">
       <%= render "color_picker", form: f, colors: Goal::COLORS, icons: Goal::ICONS %>
     </div>

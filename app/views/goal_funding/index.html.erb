@@ -1,0 +1,32 @@
+<div class="space-y-6 pb-6">
+  <%= render "goal_funding/header", title: t("goal_funding.title") %>
+  <div class="flex flex-wrap gap-2">
+    <%= render DS::Link.new(text: t("goal_funding.adjust"), href: new_goal_allocation_path, icon: "arrow-left-right") unless Current.user.guest? %>
+    <%= render DS::Link.new(text: t("goal_funding.new_plan"), href: new_goal_funding_plan_path, variant: :secondary, icon: "plus") unless Current.user.guest? %>
+    <%= render DS::Link.new(text: t("goal_funding.goals"), href: goals_path, variant: :ghost) %>
+  </div>
+  <% @accounts.each do |account| %>
+    <%= render "goal_funding/account", data: Goal::CashReservation.new(account, user: Current.user).as_json %>
+  <% end %>
+  <%= render DS::Table.new(rows: @goals, label: t("goal_funding.goals")) do |table| %>
+    <% table.with_column(t("goal_funding.purpose")) { |goal| link_to goal.name, goal_path(goal), class: "text-link" } %>
+    <% table.with_column(t("goal_funding.reserved_now"), numeric: true) { |goal| funding_reserved_label(goal) } %>
+    <% table.with_column(t("goal_funding.target"), numeric: true) { |goal| funding_money(goal.target_amount, goal.currency) } %>
+  <% end %>
+  <%= render DS::Section.new(title: t("goal_funding.plans"), count: @plans.size) do %>
+    <% @plans.each do |plan| %>
+      <div class="p-4 flex flex-wrap justify-between gap-3">
+        <%= link_to plan.name, goal_funding_plan_path(plan), class: "text-link" %>
+        <span class="text-sm text-secondary"><%= t(plan.enabled? ? "goal_funding.enabled" : "goal_funding.disabled") %></span>
+      </div>
+    <% end %>
+  <% end %>
+  <%= render DS::Table.new(rows: @history, label: t("goal_funding.history")) do |table| %>
+    <% table.with_column(t("goal_funding.date")) { |change| l(change.created_at, format: :short) } %>
+    <% table.with_column(t("goal_funding.account")) { |change| change.account_name } %>
+    <% table.with_column(t("goal_funding.purpose")) { |change| change.goal_id ? funding_goal_name(change.goal_id) : t("goal_funding.floor") } %>
+    <% table.with_column(t("goal_funding.before"), numeric: true) { |change| funding_money(change.before_amount, change.currency) } %>
+    <% table.with_column(t("goal_funding.after"), numeric: true) { |change| funding_money(change.after_amount, change.currency) } %>
+    <% table.with_column(t("goal_funding.reason")) { |change| funding_audit_reason(change) } %>
+  <% end %>
+</div>

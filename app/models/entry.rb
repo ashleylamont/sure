@@ -59,10 +59,25 @@ class Entry < ApplicationRecord
 
   before_destroy :prevent_individual_child_deletion, if: :split_child?
   after_save :track_earliest_saved_date, if: :saved_change_to_date?
+  after_save :invalidate_goal_funding_cash
+  after_destroy :invalidate_goal_funding_cash
+  after_commit :review_goal_funding_source, on: %i[update destroy]
 
   scope :visible, -> {
     joins(:account).where(accounts: { status: [ "draft", "active" ] })
   }
+
+  def invalidate_goal_funding_cash
+    return unless destroyed? || (previous_changes.keys & %w[amount date currency excluded account_id entryable_type]).any?
+    Account.where(id: [ account_id, account_id_before_last_save ].compact.uniq)
+      .where.not(goal_cash_reconciled_at: nil)
+      .update_all("goal_cash_reconciled_at = NULL, goal_allocation_version = goal_allocation_version + 1")
+  end
+
+  def review_goal_funding_source
+    return unless destroyed? || (previous_changes.keys & %w[name notes amount date currency excluded account_id entryable_type]).any?
+    GoalFundingJob.enqueue(account_id, source_entry_id: id)
+  end
 
   scope :chronological, -> {
     order(
