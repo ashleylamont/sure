@@ -12,7 +12,7 @@
     <%= render DS::Alert.new(variant: "info", message: t("goal_funding.start_boundary")) %>
     <%= render DS::Table.new(rows: @goals, label: t("goal_funding.add_each_payday")) do |table| %>
       <% table.with_column(t("goal_funding.purpose")) { |goal| goal.name } %>
-      <% table.with_column(t("goal_funding.target"), numeric: true) { |goal| funding_money(goal.target_amount, goal.currency) } %>
+      <% table.with_column(t("goal_funding.target"), numeric: true, class: "privacy-sensitive") { |goal| funding_money(goal.target_amount, goal.currency) } %>
       <% table.with_column(t("goal_funding.add_each_payday")) do |goal| %>
         <%= fields_for "plan[rules][#{goal.id}]", nil, builder: StyledFormBuilder do |rule_form| %>
           <%= rule_form.number_field :amount, value: funding_rule(@plan, goal)&.amount, min: "0.0001", step: "0.0001", label: t("goal_funding.contribution_for", name: goal.name) %>

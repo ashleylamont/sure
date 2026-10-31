@@ -10,8 +10,8 @@
   <% end %>
   <%= render DS::Table.new(rows: @goals, label: t("goal_funding.goals")) do |table| %>
     <% table.with_column(t("goal_funding.purpose")) { |goal| link_to goal.name, goal_path(goal), class: "text-link" } %>
-    <% table.with_column(t("goal_funding.reserved_now"), numeric: true) { |goal| funding_reserved_label(goal) } %>
-    <% table.with_column(t("goal_funding.target"), numeric: true) { |goal| funding_money(goal.target_amount, goal.currency) } %>
+    <% table.with_column(t("goal_funding.reserved_now"), numeric: true, class: "privacy-sensitive") { |goal| funding_reserved_label(goal) } %>
+    <% table.with_column(t("goal_funding.target"), numeric: true, class: "privacy-sensitive") { |goal| funding_money(goal.target_amount, goal.currency) } %>
   <% end %>
   <%= render DS::Section.new(title: t("goal_funding.plans"), count: @plans.size) do %>
     <% @plans.each do |plan| %>
@@ -25,8 +25,8 @@
     <% table.with_column(t("goal_funding.date")) { |change| l(change.created_at, format: :short) } %>
     <% table.with_column(t("goal_funding.account")) { |change| change.account_name } %>
     <% table.with_column(t("goal_funding.purpose")) { |change| change.goal_id ? funding_goal_name(change.goal_id) : t("goal_funding.floor") } %>
-    <% table.with_column(t("goal_funding.before"), numeric: true) { |change| funding_money(change.before_amount, change.currency) } %>
-    <% table.with_column(t("goal_funding.after"), numeric: true) { |change| funding_money(change.after_amount, change.currency) } %>
+    <% table.with_column(t("goal_funding.before"), numeric: true, class: "privacy-sensitive") { |change| funding_money(change.before_amount, change.currency) } %>
+    <% table.with_column(t("goal_funding.after"), numeric: true, class: "privacy-sensitive") { |change| funding_money(change.after_amount, change.currency) } %>
     <% table.with_column(t("goal_funding.reason")) { |change| funding_audit_reason(change) } %>
   <% end %>
 </div>

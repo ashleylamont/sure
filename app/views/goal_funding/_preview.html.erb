@@ -6,14 +6,14 @@
   <%= render "goal_funding/account", data: preview[:account] %>
   <%= render DS::Table.new(rows: preview[:rules], label: t("goal_funding.add_each_payday")) do |table| %>
     <% table.with_column(t("goal_funding.purpose")) { |rule| rule["goal_name"] } %>
-    <% table.with_column(t("goal_funding.add_each_payday"), numeric: true) { |rule| funding_money(rule["amount"], preview[:account][:currency]) } %>
+    <% table.with_column(t("goal_funding.add_each_payday"), numeric: true, class: "privacy-sensitive") { |rule| funding_money(rule["amount"], preview[:account][:currency]) } %>
     <% table.with_column(t("goal_funding.stop_at_target")) { |rule| t(rule["stop_at_target"] ? "goal_funding.yes" : "goal_funding.no") } %>
   <% end %>
-  <p class="text-sm text-primary"><%= t("goal_funding.total", amount: funding_money(preview[:total], preview[:account][:currency])) %></p>
-  <p class="text-sm text-secondary"><%= t("goal_funding.after_funding", amount: funding_remaining_after(preview)) %></p>
+  <p class="text-sm text-primary privacy-sensitive"><%= t("goal_funding.total", amount: funding_money(preview[:total], preview[:account][:currency])) %></p>
+  <p class="text-sm text-secondary privacy-sensitive"><%= t("goal_funding.after_funding", amount: funding_remaining_after(preview)) %></p>
   <%= render DS::Table.new(rows: preview[:matches], label: t("goal_funding.matches")) do |table| %>
     <% table.with_column(t("goal_funding.date")) { |source| l(source[:date]) } %>
     <% table.with_column(t("goal_funding.salary_source")) { |source| source[:name] } %>
-    <% table.with_column(t("goal_funding.amount"), numeric: true) { |source| funding_money(source[:amount], preview[:account][:currency]) } %>
+    <% table.with_column(t("goal_funding.amount"), numeric: true, class: "privacy-sensitive") { |source| funding_money(source[:amount], preview[:account][:currency]) } %>
   <% end %>
 </div>

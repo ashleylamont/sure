@@ -1,6 +1,10 @@
 module GoalFundingHelper
   def funding_money(amount, currency)
-    amount.nil? ? t("goal_funding.unknown_cash") : Money.new(amount.to_d, currency).format
+    return t("goal_funding.unknown_cash") if amount.nil?
+
+    money = Money.new(amount.to_d, currency)
+    fractional_digits = money.amount.to_s("F").split(".").last.sub(/0+\z/, "").length
+    money.format(precision: [ money.currency.default_precision, fractional_digits ].max)
   end
 
   def funding_reason(code)

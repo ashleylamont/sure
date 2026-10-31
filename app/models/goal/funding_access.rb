@@ -9,7 +9,8 @@ class Goal::FundingAccess
 
   def self.goals(user, write: false)
     permitted = accounts(user, write: write).select(:id)
-    hidden = GoalAccount.where.not(account_id: permitted).select(:goal_id)
+    hidden = GoalAccount.joins(:goal).where(goals: { family_id: user.family_id })
+      .where.not(account_id: permitted).select(:goal_id)
     user.family.goals.where.not(id: hidden)
   end
 

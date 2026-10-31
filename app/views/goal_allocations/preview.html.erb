@@ -3,12 +3,12 @@
   <%= render DS::Alert.new(variant: "warning", message: funding_reason(@proposal[:reason_code])) if @proposal[:reason_code] %>
   <% @proposal[:accounts].each do |data| %>
     <%= render "goal_funding/account", data: data %>
-    <p class="text-primary"><%= t("goal_funding.after_funding", amount: funding_money(data[:proposed_unallocated], data[:currency])) %></p>
+    <p class="text-primary privacy-sensitive"><%= t("goal_funding.after_funding", amount: funding_money(data[:proposed_unallocated], data[:currency])) %></p>
   <% end %>
   <%= render DS::Table.new(rows: @proposal[:changes], label: t("goal_funding.changes")) do |table| %>
     <% table.with_column(t("goal_funding.purpose")) { |change| funding_goal_name(change[:goal_id]) } %>
-    <% table.with_column(t("goal_funding.before"), numeric: true) { |change| change[:before_amount] || t("goal_funding.whole_account") } %>
-    <% table.with_column(t("goal_funding.after"), numeric: true) { |change| change[:after_amount] } %>
+    <% table.with_column(t("goal_funding.before"), numeric: true, class: "privacy-sensitive") { |change| change[:before_amount] || t("goal_funding.whole_account") } %>
+    <% table.with_column(t("goal_funding.after"), numeric: true, class: "privacy-sensitive") { |change| change[:after_amount] } %>
   <% end %>
   <% if @proposal[:allowed] %>
     <%= styled_form_with scope: :allocation, url: goal_allocations_path, class: "space-y-4" do |f| %>

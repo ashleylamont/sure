@@ -127,6 +127,15 @@ class GoalFundingSafetyTest < ActiveSupport::TestCase
     assert_equal 0, allocation_for(@etf)
   end
 
+  test "repeated enable requests preserve the original salary eligibility boundary" do
+    plan = funding_plan
+    activated_at = plan.enabled_at
+    travel_to Time.utc(2026, 11, 12, 12)
+    plan.enable!(actor: @user, preview_token: plan.preview[:preview_token], confirm_salary_source: true)
+    assert_equal activated_at, plan.reload.enabled_at
+    assert_equal "applied", plan.process_source!(salary_entry).status
+  end
+
   test "moving a card donation and releasing investment cash leave bank activity unchanged" do
     adjustment([ { goal_id: @giving.id, account_id: @cash.id, amount: "100" },
                  { goal_id: @etf.id, account_id: @cash.id, amount: "300" } ]).apply!

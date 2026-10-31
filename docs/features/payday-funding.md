@@ -66,8 +66,9 @@ Entries have dates, without a universal trustworthy bank posting timestamp.
 Automation therefore starts at the later of the configured effective date and
 the next family-local day after enabling. Same-day salaries are conservatively
 excluded, along with earlier historical imports and future-dated transactions.
-Re-enabling establishes a new boundary. These restrictions are intentional;
-there is no inferred calendar payday or automatic historical backfill.
+Re-enabling after disabling establishes a new boundary. Repeating enable on an
+already enabled plan preserves its original boundary. These restrictions are
+intentional; there is no inferred calendar payday or automatic historical backfill.
 
 ## Cash and processing guarantees
 

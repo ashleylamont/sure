@@ -13,6 +13,6 @@
   <p class="text-xs text-secondary"><%= t("goal_funding.reconciled", date: data[:reconciled_at] ? l(Time.iso8601(data[:reconciled_at]), format: :short) : t("goal_funding.unknown_cash")) %></p>
   <%= render DS::Table.new(rows: data[:reservations], label: t("goal_funding.reservations")) do |table| %>
     <% table.with_column(t("goal_funding.purpose")) { |item| item[:goal_name] } %>
-    <% table.with_column(t("goal_funding.reserved_now"), numeric: true) { |item| item[:whole_account] ? t("goal_funding.whole_account") : funding_money(item[:reserved], data[:currency]) } %>
+    <% table.with_column(t("goal_funding.reserved_now"), numeric: true, class: "privacy-sensitive") { |item| item[:whole_account] ? t("goal_funding.whole_account") : funding_money(item[:reserved], data[:currency]) } %>
   <% end %>
 <% end %>
