@@ -56,7 +56,7 @@ class MobileReleaseWorkflowTest < ActiveSupport::TestCase
     assert_not eligible?("push", "refs/heads/main")
     job = workflow("ios-testflight").fetch("jobs").fetch("build-and-upload")
     assert_includes job.fetch("needs"), "validate-release"
-    assert_equal "needs.validate-release.outputs.eligible == 'true'", job.fetch("if")
+    assert_equal "github.repository == 'we-promise/sure' && needs.validate-release.outputs.eligible == 'true'", job.fetch("if")
   end
 
   test "TestFlight preserves explicit mobile callers and non-push events" do
