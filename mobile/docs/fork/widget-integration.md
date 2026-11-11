@@ -20,8 +20,37 @@ xcrun swiftc -target arm64-apple-macosx15.0 \
 ```
 
 Run from `mobile/`. Also run `flutter test` and
-`flutter analyze --no-fatal-infos`. Full iOS build and simulator/device lifecycle
-checks remain necessary; the standalone Swift check does not replace them.
+`flutter analyze --no-fatal-infos`. Full simulator/device lifecycle checks remain
+necessary; the standalone Swift check does not replace them.
+
+## Local iOS simulator build
+
+Verified with Xcode 27.2, Flutter 3.44.4 and CocoaPods 1.16.2 on Apple Silicon.
+The Podfile keeps pod deployment targets at least iOS 15 for Xcode 27 compatibility.
+Use the existing CocoaPods integration and an explicit arm64 simulator build:
+
+```sh
+FLUTTER_SWIFT_PACKAGE_MANAGER=false flutter pub get
+(cd ios && pod install)
+cd ios
+FLUTTER_SWIFT_PACKAGE_MANAGER=false xcodebuild \
+  -workspace Runner.xcworkspace -scheme Runner -configuration Debug \
+  -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+  ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO \
+  BUILD_DIR="$PWD/../build/ios" build
+```
+
+This builds Runner and its embedded SureWidget extension without device signing.
+The generic `flutter build ios --simulator` route with this toolchain failed during
+Flutter's dual-architecture framework check; the explicit arm64 command above passed.
+The environment override is per command and avoids an automatic Swift Package
+Manager migration of this CocoaPods project.
+
+A clean iPhone 18 Pro simulator on iOS 27.2 accepted the built application and
+`simctl launch` returned a process ID. The embedded extension declares
+`com.apple.widgetkit-extension`. No credentials or live financial data were used.
+Visual login-screen and widget lifecycle checks remain unverified because the
+host Mac locked before UI inspection.
 
 ## Before using live data
 

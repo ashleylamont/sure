@@ -37,5 +37,12 @@ end
 post_install do |installer|
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
+    # Xcode 27 requires iOS 15+ for all targets, including pod resource bundles.
+    target.build_configurations.each do |config|
+      deployment_target = config.build_settings['IPHONEOS_DEPLOYMENT_TARGET']
+      if deployment_target.to_s.match?(/\A\d+(?:\.\d+)*\z/) && Gem::Version.new(deployment_target.to_s) < Gem::Version.new('15.0')
+        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
+      end
+    end
   end
 end
