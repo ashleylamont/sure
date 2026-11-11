@@ -300,5 +300,6 @@ struct SureAccountsWidget: Widget {
 struct SureWidgetBundle: WidgetBundle {
     var body: some Widget {
         SureAccountsWidget()
+        FlexibleSpendingWidget()
     }
 }

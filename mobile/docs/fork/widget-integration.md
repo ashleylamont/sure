@@ -2,8 +2,9 @@
 
 This integration layers upstream PR [#4679](https://github.com/we-promise/sure/pull/4679)
 (commit `f459b7798a6c1655f79de01f262e2b6f7b733026`) onto the fork's upstream sync.
-It is experimental and separate from `main`. The current widget displays account
-balances and net worth, not a spending recommendation or budget pace.
+It is experimental and separate from `main`. The original widget displays account
+balances and net worth. A separate experimental Flexible spending widget now
+shows one explicitly selected category’s remaining budget, not budget pace.
 
 The fork additionally invalidates in-flight widget refreshes when the API key,
 server URL or proxy headers change. Run its native regression checks on macOS:
@@ -76,3 +77,58 @@ Upstream candidates worth reviewing separately include #4489 (bulk budget actual
 and uncategorized totals) and #4705 (browser notifications). They are not included
 in this widget integration; each changes backend behavior and needs independent
 validation before deployment.
+
+## Flexible spending widget
+
+Add the medium-size **Flexible spending** widget, then Edit Widget to choose a
+category and enable **Show financial details** (off by default). Choose flexible
+spending rather than bills or lumpy one-off purchases. Each widget uses one
+budget-category ID, avoiding summed parent/child budgets and currency mixing.
+Add more widgets for other categories. At month end, select the new month’s
+category explicitly; it never silently switches owners or budget months.
+
+The amount is the server’s formatted `available_to_spend`, including rollover,
+read from the category **detail** endpoint. The index omits derived actuals.
+A positive monthly allocation or positive rollover counts as a configured
+budget. A negative rollover does not hide overspending against a positive
+allocation. Inherited/shared child categories are excluded. Zero remaining
+means the budget is used; negative means over budget. Near the limit is not
+called over budget. No daily pacing, cash forecast or raw Insight is shown.
+
+“Fetched” is only the API retrieval time: bank updates may lag. Failed requests
+show unavailable rather than cached guidance. Timeline guidance expires after
+six hours or at the next local midnight, whichever comes first. iOS controls
+refresh and rendering; these are not real-time banking alerts. Detail responses
+must match the selected category and budget and the current session generation.
+Logout reloads all widget timelines. All displayed details are privacy-sensitive.
+The new widget uses no separate financial disk cache and refuses HTTP redirects
+so the API key is not forwarded to a different endpoint.
+
+The chooser deliberately fails rather than silently truncating a response with
+more than 100 budgets or categories. Matching category/month labels across owners
+are omitted because the API does not label the owner; if every choice is
+ambiguous, selection reports an error. The widget will not guess household
+versus personal budget. API permissions, unavailable preview/server
+features, and missing categories can prevent selection. The category API may
+recompute persisted derived rollovers on reads, matching the existing web page;
+it does not edit allocations. Credentials remain subject to the App Group
+storage limitation above, so live use still awaits that privacy hardening.
+
+Native model/result-gate checks (synthetic data only):
+
+```sh
+xcrun swiftc -target arm64-apple-macosx15.0 \
+  -sdk "$(xcrun --sdk macosx --show-sdk-path)" \
+  -module-cache-path /tmp/sure-widget-swift-cache \
+  ios/SureWidget/FlexibleSpendingModel.swift \
+  test/native/FlexibleSpendingTests.swift \
+  -o /tmp/sure-flexible-spending-tests
+/tmp/sure-flexible-spending-tests
+```
+
+These cover near/zero/over-budget, rollover-only and negative-carry funding,
+missing fields, stale/future timestamps, expired/uninitialized periods,
+server-preserved AUD/JPY/KWD formatting, hidden details, missing responses,
+selection mismatch and session invalidation. They are not an end-to-end network
+or WidgetKit lifecycle test. Live category discovery, system privacy redaction,
+logout rendering and month transition still need signed-device testing.
