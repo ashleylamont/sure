@@ -275,3 +275,8 @@ Flutter CI and app minimum now use 3.44.4, matching the validated toolchain and
 UIScene APIs. The old 3.32.4 CI pin could not compile FlutterImplicitEngineDelegate
 or FlutterSceneDelegate. This updates mobile build/test workflows only, not Rails
 sources or the backend CI workflow.
+
+Both iOS CI jobs disable Flutter Swift Package Manager via the supported
+`FLUTTER_SWIFT_PACKAGE_MANAGER=false` environment override, matching local builds.
+This preserves CocoaPods and avoids automatic partial migration/mixed Sentry
+dependency resolution. No global developer Flutter configuration is changed.

@@ -62,6 +62,9 @@ jobs:
     name: Build signed IPA and upload to TestFlight
     runs-on: macos-26
     timeout-minutes: 120
+    env:
+      # Preserve the existing CocoaPods integration; avoid partial SPM migration.
+      FLUTTER_SWIFT_PACKAGE_MANAGER: 'false'
 
     steps:
       - name: Checkout
