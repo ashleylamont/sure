@@ -49,7 +49,6 @@ struct SureWidgetSnapshot: Codable, Sendable {
 enum SureWidgetStore {
     static let baseGroup = "group.am.sure.mobile"
 
-    private static let configFile = "sure-widget-config.json"
     private static let snapshotFile = "sure-widget-snapshot.json"
     private static let generationFile = "sure-widget-generation.json"
 
@@ -81,14 +80,24 @@ enum SureWidgetStore {
     }
 
     static func loadConfig() -> SureWidgetConfig? {
-        guard let config = read(SureWidgetConfig.self, from: configFile),
+        // Never fall back to the old plaintext file if Keychain is unavailable.
+        guard let data = try? WidgetCredentialStore.readData(),
+              let config = try? JSONDecoder().decode(SureWidgetConfig.self, from: data),
               (config.generation ?? 0) == currentGeneration() else { return nil }
         return config
     }
 
+    /// Credentials must still exist as well as the generation matching. This
+    /// also fails closed when logout deletes Keychain but cannot write the file.
+    static func hasCurrentConfig(generation: Int) -> Bool {
+        guard generation == currentGeneration(), let config = loadConfig(),
+              config.apiKey?.isEmpty == false else { return false }
+        return (config.generation ?? 0) == generation
+    }
+
     static func loadSnapshot() -> SureWidgetSnapshot? {
         guard let snapshot = read(SureWidgetSnapshot.self, from: snapshotFile),
-              (snapshot.generation ?? 0) == currentGeneration() else { return nil }
+              hasCurrentConfig(generation: snapshot.generation ?? 0) else { return nil }
         return snapshot
     }
 
@@ -96,7 +105,7 @@ enum SureWidgetStore {
     /// snapshot keeps its generation, so even a save that races a logout is
     /// ignored by `loadSnapshot` afterwards.
     static func saveSnapshot(_ snapshot: SureWidgetSnapshot) {
-        guard (snapshot.generation ?? 0) == currentGeneration() else { return }
+        guard hasCurrentConfig(generation: snapshot.generation ?? 0) else { return }
         write(snapshot, to: snapshotFile)
     }
 
@@ -128,6 +137,15 @@ enum SureWidgetFetchError: Error {
     case http(Int)
 }
 
+private final class SureWidgetRedirectPolicy: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest,
+                    completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil) // Do not forward API keys or proxy headers.
+    }
+}
+
 enum SureWidgetAPI {
     /// Fetches every account from the Sure server with the widget's API key.
     static func fetchAccounts(config: SureWidgetConfig) async throws -> [SureWidgetAccount] {
@@ -141,7 +159,8 @@ enum SureWidgetAPI {
         let sessionConfig = URLSessionConfiguration.ephemeral
         sessionConfig.timeoutIntervalForRequest = 15
         sessionConfig.timeoutIntervalForResource = 25
-        let session = URLSession(configuration: sessionConfig)
+        let session = URLSession(configuration: sessionConfig, delegate: SureWidgetRedirectPolicy(), delegateQueue: nil)
+        defer { session.invalidateAndCancel() }
 
         while page <= totalPages && page <= 10 {
             guard let url = URL(string: "\(base)/api/v1/accounts?page=\(page)&per_page=100") else {
@@ -179,7 +198,9 @@ enum SureWidgetAPI {
         request.setValue(apiKey, forHTTPHeaderField: "X-Api-Key")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        guard let result = try? await URLSession(configuration: .ephemeral).data(for: request),
+        let session = URLSession(configuration: .ephemeral, delegate: SureWidgetRedirectPolicy(), delegateQueue: nil)
+        defer { session.invalidateAndCancel() }
+        guard let result = try? await session.data(for: request),
               (result.1 as? HTTPURLResponse)?.statusCode == 200,
               let decoded = try? JSONDecoder().decode(BalanceSheetResponse.self, from: result.0) else { return nil }
         return decoded.netWorth?.formatted
@@ -191,13 +212,13 @@ enum SureWidgetAPI {
         let generation = SureWidgetStore.currentGeneration()
         let saved = SureWidgetStore.loadSnapshot()
         guard let config = SureWidgetStore.loadConfig(), config.apiKey?.isEmpty == false else {
-            return (saved, false, true)
+            return (nil, false, true)
         }
         do {
             let accounts = try await fetchAccounts(config: config)
             let netWorth = await fetchNetWorth(config: config)
             // The user logged out while this was fetching: drop the result.
-            guard SureWidgetStore.currentGeneration() == generation else { return (nil, false, true) }
+            guard SureWidgetStore.hasCurrentConfig(generation: generation) else { return (nil, false, true) }
             let snapshot = SureWidgetSnapshot(updatedAt: Date(), accounts: accounts,
                                               netWorth: netWorth, generation: generation)
             SureWidgetStore.saveSnapshot(snapshot)
@@ -205,7 +226,7 @@ enum SureWidgetAPI {
         } catch {
             // Same check on failure: after a logout, don't fall back to the
             // previous account's saved balances.
-            guard SureWidgetStore.currentGeneration() == generation else { return (nil, false, true) }
+            guard SureWidgetStore.hasCurrentConfig(generation: generation) else { return (nil, false, true) }
             return (saved, false, false)
         }
     }

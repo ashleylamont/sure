@@ -94,7 +94,7 @@ struct AccountsWidgetView: View {
 
     var body: some View {
         Group {
-            if entry.snapshot == nil {
+            if entry.snapshot == nil || !SureWidgetStore.hasCurrentConfig(generation: entry.snapshot?.generation ?? -1) {
                 EmptyStateView(needsSetup: entry.needsSetup, compact: family == .accessoryRectangular)
             } else {
                 switch family {

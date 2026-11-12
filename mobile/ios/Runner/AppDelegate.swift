@@ -3,14 +3,20 @@ import Flutter
 import WidgetKit
 
 @main
-@objc class AppDelegate: FlutterAppDelegate {
+@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    GeneratedPluginRegistrant.register(with: self)
+    _ = WidgetBridge.migrateLegacyConfig()
+    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
 
-    if let registrar = registrar(forPlugin: "SureWidgetBridge") {
+  // With UIScene the storyboard creates the engine after application launch.
+  // Register plugins and channels against that engine, not the old app window.
+  func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
+    GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "SureWidgetBridge") {
       let channel = FlutterMethodChannel(
         name: "am.sure.mobile/widget",
         binaryMessenger: registrar.messenger()
@@ -19,12 +25,14 @@ import WidgetKit
         WidgetBridge.handle(call, result: result)
       }
     }
-
-    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 }
 
-/// Writes the files the home screen widget reads from the shared App Group.
+// Flutter's scene delegate forwards URL/lifecycle events to the engine/plugins.
+// Kept in this source file so all existing Runner build configurations include it.
+class SceneDelegate: FlutterSceneDelegate {}
+
+/// Stores connection secrets in shared Keychain and financial snapshots in the App Group.
 /// Keep the group lookup and generation handling in sync with SureWidgetStore
 /// in the widget target.
 enum WidgetBridge {
@@ -54,7 +62,8 @@ enum WidgetBridge {
       if var config = args["config"] as? [String: Any] {
         // Invalidate in-flight widget fetches before changing connection identity.
         // Otherwise a previous login can repopulate the deleted snapshot.
-        let previous = readObject(at: dir.appendingPathComponent(configFile))
+        guard migrateLegacyConfig() else { result(false); return }
+        let previous = WidgetCredentialStore.load()
         let oldGeneration = generation
         do {
           generation = try WidgetSessionGeneration.prepare(
@@ -70,7 +79,12 @@ enum WidgetBridge {
           try? FileManager.default.removeItem(at: snapshotURL)
         }
         config["generation"] = generation
-        ok = write(config, to: dir.appendingPathComponent(configFile)) && ok
+        guard WidgetCredentialStore.save(config) else {
+          WidgetCenter.shared.reloadAllTimelines()
+          result(false)
+          return
+        }
+        // No connection secrets are written to the shared filesystem anymore.
       }
       if var snapshot = args["snapshot"] as? [String: Any] {
         // Cached data only fills an empty widget; it never replaces newer data.
@@ -90,23 +104,37 @@ enum WidgetBridge {
 
     case "clear":
       guard let dir = containerURL() else {
-        result(true)  // No shared storage, so nothing to clear.
+        result(WidgetCredentialStore.clear())
         return
       }
       // Invalidate first, so a widget fetch already in progress can't save
       // the old account's data after the files are deleted. If that fails,
       // report it: the files are still deleted, but the caller retries.
-      let next: [String: Any] = ["generation": currentGeneration(in: dir) + 1]
-      let invalidated = write(next, to: dir.appendingPathComponent(generationFile))
+      let (nextGeneration, overflow) = currentGeneration(in: dir).addingReportingOverflow(1)
+      let invalidated = !overflow && write(["generation": nextGeneration], to: dir.appendingPathComponent(generationFile))
+      let credentialsCleared = WidgetCredentialStore.clear()
       for name in [configFile, snapshotFile] {
         try? FileManager.default.removeItem(at: dir.appendingPathComponent(name))
       }
       WidgetCenter.shared.reloadAllTimelines()
-      result(invalidated)
+      result(invalidated && credentialsCleared)
 
     default:
       result(FlutterMethodNotImplemented)
     }
+  }
+
+  @discardableResult
+  static func migrateLegacyConfig() -> Bool {
+    guard let dir = containerURL() else { return false }
+    let url = dir.appendingPathComponent(configFile)
+    guard FileManager.default.fileExists(atPath: url.path) else { return true }
+    // A locked file is not silently mistaken for an absent file.
+    guard let legacy = try? Data(contentsOf: url) else { return false }
+    return WidgetCredentialMigration.migrate(legacy: legacy, generation: currentGeneration(in: dir),
+      readSecure: WidgetCredentialStore.readData, saveVerified: WidgetCredentialStore.saveVerified) {
+        do { try FileManager.default.removeItem(at: url); return true } catch { return false }
+      }
   }
 
   private static func readObject(at url: URL) -> [String: Any]? {

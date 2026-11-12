@@ -31,7 +31,7 @@ struct FlexibleCategoryQuery: EntityQuery {
                 FlexibleCategoryEntity(id: $0.id, title: "\($0.category.name) · \(budget.name)")
             }
         }
-        guard generation == SureWidgetStore.currentGeneration(),
+        guard SureWidgetStore.hasCurrentConfig(generation: generation),
               (config.generation ?? 0) == generation else { return [] }
         let allowed = FlexibleCategoryLabels.unambiguous(entities.map(\.title))
         let choices = entities.filter { allowed.contains($0.title) }
@@ -160,7 +160,7 @@ struct FlexibleSpendingProvider: AppIntentTimelineProvider {
                 signals.append(signal)
             }
             let pool = SpendingPool(signals: signals)
-            guard generation == SureWidgetStore.currentGeneration(), pool.valid(at: Date()) else {
+            guard SureWidgetStore.hasCurrentConfig(generation: generation), pool.valid(at: Date()) else {
                 return unavailable("Choose funded, separate categories from the same current budget and currency")
             }
             return FlexibleSpendingEntry(date: Date(), signal: signals.first,
@@ -212,11 +212,11 @@ struct FlexibleSpendingView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: compact ? 2 : 4) {
-            if entry.generation != SureWidgetStore.currentGeneration() {
+            if !SureWidgetStore.hasCurrentConfig(generation: entry.generation) {
                 Text("Open Sure to connect").font(.caption)
             } else if entry.showDetails, let pool = entry.pool, pool.valid(at: entry.date), let signal = pool.signals.first {
                 let display = summary(pool)
-                Text(compact ? "\(pool.signals.count == 1 ? signal.category.category.name : "Flex pool") · \(display.title)" : display.title).font(.caption.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.7)
+                Text(compact ? "\(display.title) · \(pool.signals.count == 1 ? signal.category.category.name : "Flex pool")" : display.title).font(.caption.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.7)
                 Text(display.amount).font(compact ? .headline : .title2.weight(.semibold)).minimumScaleFactor(0.6).lineLimit(1)
                 if compact {
                     Text("Budget only · updates may lag").font(.caption2).lineLimit(1)
