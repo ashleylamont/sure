@@ -2,97 +2,90 @@ import AppIntents
 import SwiftUI
 import WidgetKit
 
-struct FlexibleCategoryEntity: AppEntity {
-    static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Flexible budget category")
-    static let defaultQuery = FlexibleCategoryQuery()
+struct BudgetTrackEntity: AppEntity {
+    static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Budget or category")
+    static let defaultQuery = BudgetTrackQuery()
     let id: String
     let title: String
     var displayRepresentation: DisplayRepresentation { DisplayRepresentation(title: "\(title)") }
 }
 
-struct FlexibleCategoryQuery: EntityQuery {
-    func entities(for identifiers: [String]) async throws -> [FlexibleCategoryEntity] {
-        // Resolve against the current login, never reuse a prior account’s name.
-        try await suggestedEntities().filter { identifiers.contains($0.id) }
+struct BudgetTrackQuery: EntityQuery {
+    func defaultResult() async -> BudgetTrackEntity? {
+        BudgetTrackEntity(id: "current", title: "Current whole budget")
     }
-    func suggestedEntities() async throws -> [FlexibleCategoryEntity] {
+    func entities(for identifiers: [String]) async throws -> [BudgetTrackEntity] {
+        let generation = SureWidgetStore.currentGeneration()
+        var resolved = try await suggestedEntities().filter { identifiers.contains($0.id) }
+        guard SureWidgetStore.hasCurrentConfig(generation: generation) else { return [] }
+        // Preserve existing explicit budget selections without suggesting a
+        // duplicate of the automatic current-budget choice for new widgets.
+        let missing = Set(identifiers).subtracting(resolved.map(\.id))
+        guard !missing.isEmpty else {
+            return SureWidgetStore.hasCurrentConfig(generation: generation) ? resolved : []
+        }
+        guard let config = SureWidgetStore.loadConfig() else { return [] }
+        guard (config.generation ?? 0) == generation else { return [] }
+        let current = try await SpendingAPI.budgets(config).filter { $0.contains(Date()) }
+        let labels = BudgetSelection.unambiguousLabels(current.map(\.name))
+        resolved += current.filter { missing.contains("budget:\($0.id)") && labels.contains($0.name) }.map {
+            BudgetTrackEntity(id: "budget:\($0.id)", title: $0.name)
+        }
+        return SureWidgetStore.hasCurrentConfig(generation: generation) ? resolved : []
+    }
+    func suggestedEntities() async throws -> [BudgetTrackEntity] {
         guard let config = SureWidgetStore.loadConfig() else { return [] }
         let generation = SureWidgetStore.currentGeneration()
         guard (config.generation ?? 0) == generation else { return [] }
-        let budgets: SpendingBudgetsResponse = try await SpendingAPI.read("budgets?per_page=100", config)
-        guard (budgets.pagination?.totalPages ?? 1) <= 1 else { throw SpendingAPI.Failure.incomplete }
-        var entities: [FlexibleCategoryEntity] = []
-        for budget in budgets.budgets.filter({ $0.contains(Date()) }) {
-            let response: SpendingCategoriesResponse = try await SpendingAPI.read(
-                "budget_categories?budget_id=\(budget.id)&per_page=100", config)
-            // A truncated list is not presented as complete.
-            guard (response.pagination?.totalPages ?? 1) <= 1 else { throw SpendingAPI.Failure.incomplete }
-            entities += response.categories.filter { !$0.inheritsParent }.map {
-                FlexibleCategoryEntity(id: $0.id, title: "\($0.category.name) · \(budget.name)")
+        let current = try await SpendingAPI.budgets(config).filter { $0.contains(Date()) }
+        let labels = BudgetSelection.unambiguousLabels(current.map(\.name))
+        var choices: [BudgetTrackEntity] = current.count > 1 ? current.filter { labels.contains($0.name) }.map {
+            BudgetTrackEntity(id: "budget:\($0.id)", title: $0.name)
+        } : []
+        if current.count == 1, let budget = current.first {
+            choices.insert(BudgetTrackEntity(id: "current", title: "Current whole budget"), at: 0)
+            let categories = try await SpendingAPI.categories(budget.id, config).filter { !$0.inheritsParent }
+            let categoryLabels = BudgetSelection.unambiguousLabels(categories.map { $0.category.name })
+            choices += categories.filter { categoryLabels.contains($0.category.name) }.map {
+                BudgetTrackEntity(id: "category:\($0.category.id)", title: $0.category.name)
             }
         }
-        guard SureWidgetStore.hasCurrentConfig(generation: generation),
-              (config.generation ?? 0) == generation else { return [] }
-        let allowed = FlexibleCategoryLabels.unambiguous(entities.map(\.title))
-        let choices = entities.filter { allowed.contains($0.title) }
-        if !entities.isEmpty && choices.isEmpty { throw SpendingAPI.Failure.ambiguousBudgets }
+        guard SureWidgetStore.hasCurrentConfig(generation: generation) else { return [] }
         return choices
     }
 }
 
-enum FlexibleSpendingStyle: String, AppEnum {
-    case remaining, weeklyGuide, spendingSteer
-    static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Budget view")
-    static let caseDisplayRepresentations: [Self: DisplayRepresentation] = [
-        .remaining: "Remaining budget", .weeklyGuide: "Weekly guide", .spendingSteer: "Spending steer"
-    ]
-}
-
-struct FlexibleSpendingIntent: WidgetConfigurationIntent {
-    static let title: LocalizedStringResource = "Flexible spending"
-    static let description = IntentDescription("Choose up to five flexible categories, not bills or planned one-off purchases. Do not combine parents with children. Estimates use the period-to-date average, not recent spending; bank data may lag. Choose again when the budget month changes. This is budget guidance, not cash safe to spend.")
-    @Parameter(title: "Flexible category") var category: FlexibleCategoryEntity?
-    @Parameter(title: "Additional flexible categories") var additionalCategories: [FlexibleCategoryEntity]?
-    @Parameter(title: "View", default: .remaining) var style: FlexibleSpendingStyle
-    @Parameter(title: "Estimate from period average", default: false) var estimatePace: Bool
-    @Parameter(title: "Show financial details", default: false) var showDetails: Bool
+struct BudgetTrackIntent: WidgetConfigurationIntent {
+    static let title: LocalizedStringResource = "Track spending"
+    static let description = IntentDescription("Track the current whole budget automatically, or choose one budget or category. Category choices follow the current month only when ownership is unambiguous.")
+    @Parameter(title: "Track") var track: BudgetTrackEntity?
 }
 
 private struct SpendingBudgetsResponse: Decodable {
     let budgets: [SpendingBudget]
-    let pagination: SpendingCategoriesResponse.Pagination?
+    let pagination: SpendingPagination?
+}
+private struct SpendingPagination: Decodable {
+    let totalPages: Int
+    enum CodingKeys: String, CodingKey { case totalPages = "total_pages" }
 }
 private struct SpendingCategoriesResponse: Decodable {
-    struct Pagination: Decodable {
-        let totalPages: Int
-        enum CodingKeys: String, CodingKey { case totalPages = "total_pages" }
-    }
     let categories: [SpendingCategory]
-    let pagination: Pagination?
+    let pagination: SpendingPagination?
     enum CodingKeys: String, CodingKey { case categories = "budget_categories", pagination }
 }
 
 private final class SpendingRedirectPolicy: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
-        completionHandler(nil) // Never forward the widget key to a redirected endpoint.
+        completionHandler(nil)
     }
 }
 
 private enum SpendingAPI {
-    enum Failure: LocalizedError {
-        case unavailable, incomplete, ambiguousBudgets
-        var errorDescription: String? {
-            switch self {
-            case .unavailable: return "Could not read this budget. Open Sure to check the connection."
-            case .incomplete: return "Too many budgets or categories for this experimental widget."
-            case .ambiguousBudgets: return "Multiple owners have matching budget names. This widget cannot safely distinguish them yet."
-            }
-        }
-    }
+    enum Failure: Error { case unavailable, incomplete }
     static func read<T: Decodable>(_ path: String, _ config: SureWidgetConfig) async throws -> T {
         guard let key = config.apiKey, !key.isEmpty,
-              let url = URL(string: config.baseUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/api/v1/" + path)
-        else { throw Failure.unavailable }
+              let url = URL(string: config.baseUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/api/v1/" + path) else { throw Failure.unavailable }
         var request = URLRequest(url: url, timeoutInterval: 15)
         for (name, value) in config.headers { request.setValue(value, forHTTPHeaderField: name) }
         request.setValue(key, forHTTPHeaderField: "X-Api-Key")
@@ -103,149 +96,305 @@ private enum SpendingAPI {
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw Failure.unavailable }
         return try JSONDecoder().decode(T.self, from: data)
     }
+    static func budgets(_ config: SureWidgetConfig) async throws -> [SpendingBudget] {
+        let response: SpendingBudgetsResponse = try await read("budgets?per_page=100", config)
+        guard (response.pagination?.totalPages ?? 1) <= 1 else { throw Failure.incomplete }
+        return response.budgets
+    }
+    static func categories(_ budgetID: String, _ config: SureWidgetConfig) async throws -> [SpendingCategory] {
+        guard UUID(uuidString: budgetID) != nil else { throw Failure.unavailable }
+        let response: SpendingCategoriesResponse = try await read("budget_categories?budget_id=\(budgetID)&per_page=100", config)
+        guard (response.pagination?.totalPages ?? 1) <= 1 else { throw Failure.incomplete }
+        return response.categories
+    }
 }
 
-struct FlexibleSpendingEntry: TimelineEntry {
+struct BudgetWidgetEntry: TimelineEntry {
     let date: Date
-    let signal: FlexibleSpendingSignal?
+    let snapshot: BudgetSnapshot?
+    let scope: String
     let message: String
     let generation: Int
-    let showDetails: Bool
-    var pool: SpendingPool? = nil
-    var style: FlexibleSpendingStyle = .remaining
-    var estimatePace: Bool = false
+    var preview = false
 }
 
-struct FlexibleSpendingProvider: AppIntentTimelineProvider {
-    func placeholder(in context: Context) -> FlexibleSpendingEntry {
-        FlexibleSpendingEntry(date: Date(), signal: nil, message: "Choose a flexible category in Edit Widget", generation: -1, showDetails: false)
-    }
-    func snapshot(for configuration: FlexibleSpendingIntent, in context: Context) async -> FlexibleSpendingEntry {
-        if context.isPreview { return placeholder(in: context) }
+struct BudgetWidgetProvider: AppIntentTimelineProvider {
+    func placeholder(in context: Context) -> BudgetWidgetEntry { sample() }
+    func snapshot(for configuration: BudgetTrackIntent, in context: Context) async -> BudgetWidgetEntry {
+        if context.isPreview { return sample() }
         return await entry(configuration)
     }
-    func timeline(for configuration: FlexibleSpendingIntent, in context: Context) async -> Timeline<FlexibleSpendingEntry> {
+    func timeline(for configuration: BudgetTrackIntent, in context: Context) async -> Timeline<BudgetWidgetEntry> {
         let current = await entry(configuration)
-        // Explicit expiry even if iOS delays the next network refresh.
         let now = Date()
-        let midnight = Calendar.current.date(byAdding: .day, value: 1, to: Calendar.current.startOfDay(for: now)) ?? now
-        let expiry = min(now.addingTimeInterval(6 * 60 * 60), midnight)
-        let expired = FlexibleSpendingEntry(date: expiry, signal: nil, message: "Open Sure to check newer spending", generation: current.generation, showDetails: configuration.showDetails)
-        return Timeline(entries: [current, expired], policy: .after(Date().addingTimeInterval(30 * 60)))
+        let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: Calendar.current.startOfDay(for: now)) ?? now
+        let expiry = min(now.addingTimeInterval(6 * 60 * 60), tomorrow)
+        let expired = BudgetWidgetEntry(date: expiry, snapshot: nil, scope: current.scope,
+            message: "Open Sure to refresh", generation: current.generation)
+        return Timeline(entries: [current, expired], policy: .after(now.addingTimeInterval(30 * 60)))
     }
-    private func entry(_ configuration: FlexibleSpendingIntent) async -> FlexibleSpendingEntry {
+    private func sample() -> BudgetWidgetEntry {
+        let now = Date()
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        let start = Calendar.current.date(byAdding: .day, value: -14, to: now)!
+        let end = Calendar.current.date(byAdding: .day, value: 15, to: now)!
+        let budget = SpendingBudget(id: "example", name: "Example budget", startDate: formatter.string(from: start),
+            endDate: formatter.string(from: end), initialized: true, currency: "AUD", budgetedCents: 100000,
+            actualCents: 60000, availableCents: 40000)
+        return BudgetWidgetEntry(date: now, snapshot: BudgetSnapshot(budget: budget, fetchedAt: now),
+            scope: "Example budget", message: "", generation: -1, preview: true)
+    }
+    private func entry(_ configuration: BudgetTrackIntent) async -> BudgetWidgetEntry {
         let generation = SureWidgetStore.currentGeneration()
-        func unavailable(_ message: String) -> FlexibleSpendingEntry {
-            FlexibleSpendingEntry(date: Date(), signal: nil, message: message, generation: generation, showDetails: configuration.showDetails)
+        // Saved AppIntent titles may belong to a prior login; resolve names anew.
+        var scope = "Current budget"
+        func unavailable(_ message: String) -> BudgetWidgetEntry {
+            BudgetWidgetEntry(date: Date(), snapshot: nil, scope: scope, message: message, generation: generation)
         }
-        guard configuration.showDetails else { return unavailable("Financial details hidden · Edit Widget to show") }
-        guard let entity = configuration.category else { return unavailable("Choose a flexible category in Edit Widget") }
         guard let config = SureWidgetStore.loadConfig(), (config.generation ?? 0) == generation,
-              config.apiKey?.isEmpty == false else { return unavailable("Open Sure → Home Screen Widget to connect") }
-        let entities = [entity] + (configuration.additionalCategories ?? [])
-        guard entities.count <= 5, Set(entities.map(\.id)).count == entities.count,
-              entities.allSatisfy({ UUID(uuidString: $0.id) != nil }) else {
-            return unavailable("Choose up to five different categories")
+              config.apiKey?.isEmpty == false else { return unavailable("Open Sure to connect") }
+        guard let track = BudgetTrack(id: configuration.track?.id) else { return unavailable("Choose a track in Edit Widget") }
+        switch track {
+        case .automatic: break
+        case .budget: scope = "Selected budget"
+        case .category: scope = "Selected category"
         }
         do {
-            var signals: [FlexibleSpendingSignal] = []
-            for selected in entities {
-                let category: SpendingCategory = try await SpendingAPI.read("budget_categories/\(selected.id)", config)
-                guard UUID(uuidString: category.budgetID) != nil else { return unavailable("Budget unavailable") }
-                let budget: SpendingBudget = try await SpendingAPI.read("budgets/\(category.budgetID)", config)
-                guard let signal = FlexibleSpendingResult.accept(category: category, budget: budget,
-                    selectedID: selected.id, startedGeneration: generation,
-                    currentGeneration: SureWidgetStore.currentGeneration(),
-                    showDetails: configuration.showDetails, fetchedAt: Date()) else { return unavailable("Open Sure to reconnect") }
-                signals.append(signal)
+            let budgets = try await SpendingAPI.budgets(config)
+            guard let chosen = BudgetSelection.currentBudget(budgets, track: track, at: Date()) else {
+                let current = budgets.filter { $0.contains(Date()) }
+                if current.isEmpty { return unavailable("Set up a current budget in Sure") }
+                if BudgetSelection.unambiguousLabels(current.map(\.name)).isEmpty {
+                    return unavailable("Give budgets distinct names in Sure")
+                }
+                return unavailable("Choose a current budget in Edit Widget")
             }
-            let pool = SpendingPool(signals: signals)
-            guard SureWidgetStore.hasCurrentConfig(generation: generation), pool.valid(at: Date()) else {
-                return unavailable("Choose funded, separate categories from the same current budget and currency")
+            guard UUID(uuidString: chosen.id) != nil else { return unavailable("Open Sure to check this budget") }
+            // The list omits actual/remaining values. Always fetch the detail.
+            let budget: SpendingBudget = try await SpendingAPI.read("budgets/\(chosen.id)", config)
+            guard budget.id == chosen.id else { return unavailable("Open Sure to refresh") }
+            var category: SpendingCategory?
+            if case .category(let stableID) = track {
+                let categories = try await SpendingAPI.categories(budget.id, config)
+                guard let selected = BudgetSelection.category(categories, stableID: stableID, budgetID: budget.id),
+                      UUID(uuidString: selected.id) != nil else { return unavailable("Choose a category in Edit Widget") }
+                let detail: SpendingCategory = try await SpendingAPI.read("budget_categories/\(selected.id)", config)
+                guard detail.id == selected.id, detail.category.id == stableID, detail.budgetID == budget.id else {
+                    return unavailable("Open Sure to refresh")
+                }
+                category = detail
             }
-            return FlexibleSpendingEntry(date: Date(), signal: signals.first,
-                message: "", generation: generation, showDetails: true, pool: pool,
-                style: configuration.style, estimatePace: configuration.estimatePace)
+            guard SureWidgetStore.hasCurrentConfig(generation: generation) else { return unavailable("Open Sure to reconnect") }
+            scope = category?.category.name ?? budget.name
+            guard let snapshot = BudgetSnapshot(budget: budget, category: category, fetchedAt: Date()) else {
+                return unavailable("Open Sure to check budget amounts")
+            }
+            if let problem = snapshot.problem(at: Date()) { return unavailable(problem) }
+            return BudgetWidgetEntry(date: Date(), snapshot: snapshot, scope: scope, message: "", generation: generation)
         } catch {
-            // No cached financial recommendation after a failed refresh.
-            return unavailable("Budget unavailable · open Sure to check")
+            return unavailable("Open Sure to check the connection")
         }
     }
 }
 
-struct FlexibleSpendingView: View {
-    let entry: FlexibleSpendingEntry
+private struct BudgetUnavailableView: View {
+    let title: String
+    let scope: String
+    let message: String
+    let icon: String
+    var compact = false
+    var body: some View {
+        if compact {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(scope).font(.caption2.weight(.semibold)).lineLimit(1)
+                Label(title, systemImage: icon).font(.caption.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.7)
+                Text(message).font(.caption2).lineLimit(2).minimumScaleFactor(0.7)
+            }
+        } else {
+        VStack(alignment: .leading, spacing: 7) {
+            Label(title, systemImage: icon).font(.caption.weight(.semibold))
+            Text(scope).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            Spacer(minLength: 0)
+            Text(message).font(.callout).fixedSize(horizontal: false, vertical: true)
+        }
+        }
+    }
+}
+
+struct BudgetRemainingView: View {
+    let entry: BudgetWidgetEntry
     @Environment(\.widgetFamily) private var family
     private var compact: Bool { family == .accessoryRectangular }
-
-    private func summary(_ pool: SpendingPool) -> (title: String, amount: String, detail: String) {
-        guard let remaining = pool.remaining(at: entry.date), let formatted = pool.format(remaining) else {
-            return ("Budget unavailable", "", "Open Sure to check")
-        }
-        if remaining <= 0 {
-            return (remaining < 0 ? "Over budget" : "Budget used", formatted, "Pause extras or review the plan")
-        }
-        if entry.style == .remaining { return ("Budget remaining", formatted, "Across selected flexible categories") }
-        guard let allowance = pool.weeklyGuide(at: entry.date), let days = pool.days(at: entry.date),
-              let guide = pool.format(allowance, approximate: true) else {
-            return ("Budget remaining", formatted, "Could not calculate the period")
-        }
-        let horizon = days.remaining < 7 ? "for the final \(days.remaining) days" : "per week until reset"
-        if entry.style == .weeklyGuide {
-            return ("Budget guide", "≈ \(guide) /\(days.remaining < 7 ? "\(days.remaining) days" : "week")", horizon)
-        }
-        guard entry.estimatePace else {
-            return ("Budget guide", "≈ \(guide) /\(days.remaining < 7 ? "\(days.remaining) days" : "week")", "\(horizon) · Pace estimate off")
-        }
-        guard let average = pool.periodWeeklyAverage(at: entry.date),
-              let reduction = pool.suggestedReduction(at: entry.date),
-              let averageText = pool.format(average, approximate: true),
-              let reductionText = pool.format(reduction, approximate: true) else {
-            return ("Budget guide", "≈ \(guide) /\(days.remaining < 7 ? "\(days.remaining) days" : "week")", "\(horizon) · Pace unavailable")
-        }
-        let materialReduction = pool.pacePosition(at: entry.date) == .easeOff
-        let nearPlan = pool.pacePosition(at: entry.date) == .aroundPlan
-        let title = materialReduction ? "Ease off · estimate" : (nearPlan ? "Around plan · estimate" : "Within plan · estimate")
-        return (title, "≈ \(guide) /\(days.remaining < 7 ? "\(days.remaining) days" : "week")",
-                "Period average \(averageText)/week" + (materialReduction ? " · aim ≈ \(reductionText)/week lower" : (nearPlan ? " · close to remaining plan" : " · within remaining plan")))
-    }
-
+    private var circular: Bool { family == .accessoryCircular }
     var body: some View {
-        VStack(alignment: .leading, spacing: compact ? 2 : 4) {
-            if !SureWidgetStore.hasCurrentConfig(generation: entry.generation) {
-                Text("Open Sure to connect").font(.caption)
-            } else if entry.showDetails, let pool = entry.pool, pool.valid(at: entry.date), let signal = pool.signals.first {
-                let display = summary(pool)
-                Text(compact ? "\(display.title) · \(pool.signals.count == 1 ? signal.category.category.name : "Flex pool")" : display.title).font(.caption.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.7)
-                Text(display.amount).font(compact ? .headline : .title2.weight(.semibold)).minimumScaleFactor(0.6).lineLimit(1)
-                if compact {
-                    Text("Budget only · updates may lag").font(.caption2).lineLimit(1)
+        Group {
+            if let snapshot = usableSnapshot {
+                if circular {
+                    let amount = VStack(spacing: 0) {
+                        Text(snapshot.remainingText).font(.caption.weight(.semibold)).minimumScaleFactor(0.4).lineLimit(1)
+                        Text(snapshot.remaining < 0 ? "over" : "left").font(.system(size: 9))
+                    }
+                    Group {
+                        if let used = snapshot.usedFraction(at: entry.date) {
+                            Gauge(value: used, in: 0...1) { Text(entry.scope) } currentValueLabel: { amount }
+                                .gaugeStyle(.accessoryCircularCapacity).tint(.accentColor)
+                        } else { amount }
+                    }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("\(entry.scope): \(snapshot.remainingText) \(snapshot.remainingLabel). Bank data may lag.")
                 } else {
-                    Text(display.detail).font(.caption).lineLimit(2).minimumScaleFactor(0.8)
-                    Text(pool.signals.map { $0.category.category.name }.joined(separator: " + ")).font(.caption2).lineLimit(1)
-                    Text("Ends \(signal.budget.endDate) · \(signal.category.currency)").font(.caption2)
-                    Spacer(minLength: 0)
-                    HStack(spacing: 3) { Text("Fetched"); Text(signal.fetchedAt, style: .time) }.font(.caption2)
-                    Text("Bank updates may lag. Budget, not spendable cash.").font(.caption2).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: compact ? 2 : 5) {
+                    Text(entry.scope).font(.caption.weight(.semibold)).foregroundStyle(.secondary).lineLimit(1)
+                    Text(snapshot.remainingText).font(compact ? .title3.bold() : .system(size: 32, weight: .semibold, design: .rounded))
+                        .minimumScaleFactor(0.65).lineLimit(1)
+                    Text(snapshot.remainingLabel).font(.caption)
+                    if !compact {
+                        Spacer(minLength: 2)
+                        if let used = snapshot.usedFraction(at: entry.date) {
+                            GeometryReader { geometry in
+                                ZStack(alignment: .leading) {
+                                    Capsule().fill(.quaternary)
+                                    Capsule().fill(Color.accentColor).frame(width: geometry.size.width * used)
+                                }
+                            }
+                            .frame(height: 4)
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel("Budget used")
+                            .accessibilityValue(used.formatted(.percent.precision(.fractionLength(0))))
+                        }
+                        HStack {
+                            Text("Ends \(snapshot.endLabel)")
+                            if family == .systemMedium { Spacer(); Text("Fetched \(snapshot.fetchedAt, style: .time)") }
+                        }.font(.caption2).foregroundStyle(.secondary)
+                        if family == .systemMedium { Text("Bank data may lag · budget, not cash").font(.caption2).foregroundStyle(.secondary) }
+                    }
                 }
+                }
+            } else if circular {
+                Image(systemName: "chart.bar.xaxis").accessibilityLabel("Budget remaining. \(connectionMessage)")
             } else {
-                Text(entry.message).font(.caption)
+                BudgetUnavailableView(title: "Budget remaining", scope: safeScope,
+                    message: connectionMessage, icon: "chart.bar.fill", compact: compact)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: circular ? .center : .topLeading)
+        // Widgets have fixed geometry. Keep typography legible within it;
+        // full amounts and meaning remain available to VoiceOver.
+        .dynamicTypeSize(.xSmall ... .large)
         .privacySensitive()
         .containerBackground(.fill.tertiary, for: .widget)
+    }
+    private var usableSnapshot: BudgetSnapshot? {
+        guard entry.preview || SureWidgetStore.hasCurrentConfig(generation: entry.generation),
+              let snapshot = entry.snapshot, snapshot.problem(at: entry.date) == nil else { return nil }
+        return snapshot
+    }
+    private var safeScope: String {
+        entry.preview || SureWidgetStore.hasCurrentConfig(generation: entry.generation) ? entry.scope : "Current budget"
+    }
+    private var connectionMessage: String {
+        entry.preview || SureWidgetStore.hasCurrentConfig(generation: entry.generation) ? entry.message : "Open Sure to connect"
+    }
+}
+
+struct BudgetPaceView: View {
+    let entry: BudgetWidgetEntry
+    @Environment(\.widgetFamily) private var family
+    private var compact: Bool { family == .accessoryRectangular }
+    private var circular: Bool { family == .accessoryCircular }
+    var body: some View {
+        Group {
+            if let snapshot = usableSnapshot, let ratio = snapshot.pace(at: entry.date) {
+                let value = NSDecimalNumber(decimal: ratio).doubleValue
+                if circular {
+                    Gauge(value: min(2, max(0, value)), in: 0...2) {
+                        Text(entry.scope)
+                    } currentValueLabel: {
+                        Text(percent(value)).font(.caption.weight(.semibold)).minimumScaleFactor(0.5).lineLimit(1)
+                    }.gaugeStyle(.accessoryCircular).tint(.accentColor)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("\(entry.scope): \(percent(value)) of even pace. 100 percent is even pace. Bank data may lag.")
+                } else {
+                VStack(alignment: .leading, spacing: compact ? 2 : 4) {
+                    Text(entry.scope).font(.caption.weight(.semibold)).foregroundStyle(.secondary).lineLimit(1)
+                    if compact {
+                        Text("\(percent(value)) · \(snapshot.paceLabel(at: entry.date))").font(.headline).minimumScaleFactor(0.6).lineLimit(1)
+                        Text("100% = even pace · estimate").font(.caption2)
+                    } else {
+                        HStack(spacing: 16) {
+                            Gauge(value: min(2, max(0, value)), in: 0...2) {
+                                Text("Pace")
+                            } currentValueLabel: {
+                                Text(percent(value)).font(.system(.body, design: .rounded).weight(.semibold)).minimumScaleFactor(0.55)
+                            } minimumValueLabel: { Text("0") } maximumValueLabel: { Text("200") }
+                            .gaugeStyle(.accessoryCircular).tint(.accentColor)
+                            .accessibilityLabel("Budget pace").accessibilityValue("\(percent(value)); 100 percent is even pace")
+                            if family == .systemMedium {
+                                VStack(alignment: .leading, spacing: 5) {
+                                    Text(snapshot.paceLabel(at: entry.date)).font(.headline)
+                                    if let projected = snapshot.projection(at: entry.date) {
+                                        Text("\(snapshot.formatted(projected)) projected").font(.subheadline)
+                                    }
+                                    Text("\(snapshot.formatted(snapshot.envelope)) budget").font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                        }.frame(maxWidth: .infinity, alignment: family == .systemMedium ? .leading : .center)
+                        if family == .systemSmall { Text(snapshot.paceLabel(at: entry.date)).font(.caption).lineLimit(1).minimumScaleFactor(0.7) }
+                        Text("100% = even pace").font(.caption2).foregroundStyle(.secondary)
+                        Spacer(minLength: 0)
+                        Text(snapshot.budget.days(at: entry.date)?.early == true ? "Early estimate · data may lag" : "Linear estimate · data may lag")
+                            .font(.caption2).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.7)
+                    }
+                }
+                }
+            } else if circular {
+                Image(systemName: "gauge.with.needle").accessibilityLabel("Budget pace. \(connectionMessage)")
+            } else {
+                BudgetUnavailableView(title: "Budget pace", scope: safeScope,
+                    message: connectionMessage, icon: "gauge.with.needle", compact: compact)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: circular ? .center : .topLeading)
+        // Widgets have fixed geometry. Keep typography legible within it;
+        // full amounts and meaning remain available to VoiceOver.
+        .dynamicTypeSize(.xSmall ... .large)
+        .privacySensitive()
+        .containerBackground(.fill.tertiary, for: .widget)
+    }
+    private func percent(_ value: Double) -> String { value.formatted(.percent.precision(.fractionLength(0))) }
+    private var usableSnapshot: BudgetSnapshot? {
+        guard entry.preview || SureWidgetStore.hasCurrentConfig(generation: entry.generation),
+              let snapshot = entry.snapshot, snapshot.paceProblem(at: entry.date) == nil else { return nil }
+        return snapshot
+    }
+    private var safeScope: String {
+        entry.preview || SureWidgetStore.hasCurrentConfig(generation: entry.generation) ? entry.scope : "Current budget"
+    }
+    private var connectionMessage: String {
+        guard entry.preview || SureWidgetStore.hasCurrentConfig(generation: entry.generation) else { return "Open Sure to connect" }
+        return entry.snapshot?.paceProblem(at: entry.date) ?? entry.message
     }
 }
 
 struct FlexibleSpendingWidget: Widget {
     let kind = "SureFlexibleSpendingWidget"
     var body: some WidgetConfiguration {
-        AppIntentConfiguration(kind: kind, intent: FlexibleSpendingIntent.self, provider: FlexibleSpendingProvider()) { entry in
-            FlexibleSpendingView(entry: entry)
-        }
-        .configurationDisplayName("Flexible spending")
-        .description("Try remaining budget, a weekly guide, or an optional period-average spending steer. Not a cash forecast.")
-        .supportedFamilies([.systemMedium, .accessoryRectangular])
+        AppIntentConfiguration(kind: kind, intent: BudgetTrackIntent.self, provider: BudgetWidgetProvider()) { BudgetRemainingView(entry: $0) }
+            .configurationDisplayName("Budget Remaining")
+            .description("See what remains in the current whole budget or one category. Budget headroom is not cash available to spend; bank data can lag.")
+            .supportedFamilies([.systemSmall, .systemMedium, .accessoryRectangular, .accessoryCircular])
+    }
+}
+
+struct BudgetPaceWidget: Widget {
+    let kind = "SureBudgetPaceWidget"
+    var body: some WidgetConfiguration {
+        AppIntentConfiguration(kind: kind, intent: BudgetTrackIntent.self, provider: BudgetWidgetProvider()) { BudgetPaceView(entry: $0) }
+            .configurationDisplayName("Budget Pace")
+            .description("A speedometer against even spending through the budget period. 100% means even pace, not a safety limit. Rent and lumpy purchases can distort this linear reference; bank data can lag.")
+            .supportedFamilies([.systemSmall, .systemMedium, .accessoryRectangular, .accessoryCircular])
     }
 }

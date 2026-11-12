@@ -95,9 +95,17 @@ struct AccountsWidgetView: View {
     var body: some View {
         Group {
             if entry.snapshot == nil || !SureWidgetStore.hasCurrentConfig(generation: entry.snapshot?.generation ?? -1) {
-                EmptyStateView(needsSetup: entry.needsSetup, compact: family == .accessoryRectangular)
+                if family == .accessoryCircular {
+                    CircularBalanceView(title: "Sure", amount: nil, statusIcon: "key")
+                } else {
+                    EmptyStateView(needsSetup: entry.needsSetup, compact: family == .accessoryRectangular)
+                }
             } else {
                 switch family {
+                case .accessoryCircular:
+                    CircularBalanceView(title: entry.netWorth != nil ? "Net worth" : (entry.accounts.first?.name ?? "Balance"),
+                        amount: entry.netWorth ?? entry.accounts.first?.balance,
+                        statusIcon: entry.needsSetup ? "key" : (!entry.isLive ? "wifi.slash" : nil))
                 case .accessoryRectangular: LockScreenView(entry: entry)
                 case .systemSmall: ListLayout(entry: entry, maxRows: 3, compact: true)
                 case .systemMedium: ListLayout(entry: entry, maxRows: 4, compact: false)
@@ -106,6 +114,30 @@ struct AccountsWidgetView: View {
             }
         }
         .containerBackground(.fill.tertiary, for: .widget)
+    }
+}
+
+/// A one-slot Lock Screen glance. Use the configured net worth when available,
+/// otherwise the first account in the same ordering as the balance list.
+struct CircularBalanceView: View {
+    let title: String
+    let amount: String?
+    let statusIcon: String?
+
+    var body: some View {
+        VStack(spacing: 2) {
+            Image(systemName: statusIcon ?? "creditcard")
+                .font(.caption)
+            Text(amount ?? "Open Sure")
+                .font(.caption.weight(.semibold)).monospacedDigit()
+                .lineLimit(1).minimumScaleFactor(0.5)
+            Text(title).font(.system(size: 9)).lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .privacySensitive()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(amount.map { "\(title), \($0)" } ?? "Open Sure to connect")
+        .accessibilityValue(statusIcon == "wifi.slash" ? "Last refresh failed" : "")
     }
 }
 
@@ -292,7 +324,7 @@ struct SureAccountsWidget: Widget {
         }
         .configurationDisplayName("Account Balances")
         .description("Your Sure account balances, refreshed automatically or with the refresh button.")
-        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge, .accessoryRectangular])
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge, .accessoryRectangular, .accessoryCircular])
     }
 }
 
@@ -301,5 +333,6 @@ struct SureWidgetBundle: WidgetBundle {
     var body: some Widget {
         SureAccountsWidget()
         FlexibleSpendingWidget()
+        BudgetPaceWidget()
     }
 }

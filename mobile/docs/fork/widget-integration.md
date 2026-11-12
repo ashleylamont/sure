@@ -54,7 +54,7 @@ A clean iPhone 18 Pro simulator on iOS 27.2 accepted the built application and
 Visual login-screen and widget lifecycle checks remain unverified because the
 host Mac locked before UI inspection.
 
-## Before using live data
+## Signing and validation notes
 
 - Configure a personal signing team, bundle IDs and shared App Group for both
   Runner and SureWidget. The upstream signing values are not portable credentials.
@@ -75,93 +75,73 @@ host Mac locked before UI inspection.
 - Test logout, key/server changes, failed refresh, stale data and privacy mode.
   Widget refresh frequency is ultimately controlled by iOS.
 
-## Flexible spending widget
+## Three glanceable widgets
 
-Add the medium Home Screen or rectangular Lock Screen **Flexible spending**
-widget. In Edit Widget, choose **Remaining budget**, **Weekly guide**, or
-**Spending steer**. Add several copies with different views to compare.
-Enable **Show financial details** explicitly; it is off by default.
+- **Account Balances** keeps the existing balance view and its meaningful balance
+  options.
+- **Budget Remaining** shows one authoritative remaining/over-budget amount,
+  scope, used bar and period end.
+- **Budget Pace** is a speedometer against a straight-line spending reference:
+  100% means spending exactly at an even pace through the period. The medium view
+  adds projected period-end spending and the budget envelope. It does not tell
+  the user to cut back merely because rent or another lumpy expense posted early.
 
-Select one category plus up to four additional flexible categories from the same
-current budget and currency. Duplicates, inherited/shared child budgets and
-parent/child combinations fail closed. Fixed bills and planned lumpy purchases
-are not suitable: the user chooses which categories are flexible. At month end,
-select the new month's categories explicitly; the widget never silently switches
-owners or budget months.
+The budget widgets have one **Track** selector. The default is **Current whole
+budget**, automatically following the current period when exactly one budget is
+available. A single category can be selected instead and follows its stable
+category identity across periods. With multiple current budgets, only
+unambiguously named budgets can be selected; category ownership is not guessed.
+An explicitly selected period-specific budget must be reselected after it ends.
+There are no pooled-category, view, estimate-enable or show-details switches.
+System privacy-sensitive rendering remains enabled, consistent with balances.
 
-The widget reads each selected category's **detail** endpoint, because the index
-omits derived actuals. It sums the integer minor-unit `available_to_spend_cents`
-amounts, including rollover, and formats the result in their shared currency.
-A positive monthly allocation or positive rollover counts as a configured
-budget. Negative rollover does not hide overspending against a positive
-allocation. Zero remaining means the budget is used; negative means over budget.
-Near the limit is not called over budget. No cash forecast or raw Insight is shown.
+The implementation provides square `systemSmall`, wider `systemMedium`, and
+rectangular plus one-slot `accessoryCircular` Lock Screen layouts. The circular
+Lock Screen family is the clarified tiny footprint; it is not a single-icon Home
+Screen widget. Balances also support the circular Lock Screen family, showing
+configured net worth when available or the first account from the existing list.
 
-- **Remaining budget** shows the pool's remaining or over-budget amount.
-- **Weekly guide** divides remaining budget across the inclusive calendar days
-  to reset. In the final partial week it shows the total for those remaining
-  days, not a seven-day amount. This recalculates as spending arrives; it is not
-  a fixed weekly envelope.
-- **Spending steer** optionally compares that rate with the **period-to-date
-  average** after at least seven calendar days. It does not claim recent 14-day
-  history. Enable **Estimate from period average** to try it; otherwise it falls
-  back to the weekly guide. Only a reduction above both 10% of the sustainable
-  weekly rate and five major currency units produces an “Ease off” warning.
-  A smaller positive reduction says “Around plan”; zero says “Within plan”.
-  Missing/negative actuals suppress the comparison. Exhausted budgets show
-  pause/review, never negative daily allowances. Approximate rates use whole
-  currency units with the correct currency exponent (for example JPY vs KWD).
+The budget list omits actuals, so the provider reads the selected budget/category
+**detail** endpoint. Whole-budget remaining uses `available_to_spend_cents`;
+category remaining preserves rollover. The category's effective envelope is
+actual spending plus remaining. Pace is:
 
-All views use retrieved budget records, not a bank-sync completeness guarantee.
-If recent transactions are delayed or miscategorised, disable the pace estimate
-and use remaining budget with caution. The API has no reliable per-category
-feed-completeness signal; no automatic completeness claim is made. No transaction
-queries or background snapshot service were added.
-
-“Fetched” is only the API retrieval time: bank updates may lag. Failed requests
-show unavailable rather than cached guidance. Timeline guidance expires after
-six hours or at the next local midnight, whichever comes first. iOS controls
-refresh and rendering; these are not real-time banking alerts. Detail responses
-must match the selected category and budget and the current session generation.
-Logout reloads all widget timelines. All displayed details are privacy-sensitive.
-The new widget uses no separate financial disk cache and refuses HTTP redirects
-so the API key is not forwarded to a different endpoint.
-
-The chooser deliberately fails rather than silently truncating a response with
-more than 100 budgets or categories. Matching category/month labels across owners
-are omitted because the API does not label the owner; if every choice is
-ambiguous, selection reports an error. The widget will not guess household
-versus personal budget. API permissions, unavailable preview/server
-features, and missing categories can prevent selection. The category API may
-recompute persisted derived rollovers on reads, matching the existing web page;
-it does not edit allocations. Signed-device verification of the shared Keychain entitlement remains required
-before using live credentials.
-
-Native model/result-gate checks (synthetic data only):
-
-```sh
-xcrun swiftc -target arm64-apple-macosx15.0 \
-  -sdk "$(xcrun --sdk macosx --show-sdk-path)" \
-  -module-cache-path /tmp/sure-widget-swift-cache \
-  ios/SureWidget/FlexibleSpendingModel.swift \
-  test/native/FlexibleSpendingTests.swift \
-  -o /tmp/sure-flexible-spending-tests
-/tmp/sure-flexible-spending-tests
+```
+spent / (envelope × elapsed inclusive calendar days / total inclusive days)
 ```
 
-These cover near/zero/over-budget, rollover-only and negative-carry funding,
-missing fields, stale/future timestamps, expired/uninitialized periods,
-AUD/JPY/KWD formatting, pooled-category validation, daylight-saving dates,
-partial weeks, missing/negative actuals, materiality boundaries, hidden details,
-missing responses, selection mismatch and session invalidation. They are not an end-to-end network
-or WidgetKit lifecycle test. Live category discovery, system privacy redaction,
-logout rendering and month transition still need signed-device testing.
+Dates use Gregorian civil days in the current timezone, not fixed 24-hour periods.
+The projection is a linear reference, not a prediction of bill timing or cash
+availability. Early periods are labelled estimates. Missing values and expired periods show a useful unavailable state. Nonpositive
+envelopes and negative net spending suppress the Pace calculation, while the
+Remaining widget still shows the authoritative amount for explicit zero budgets
+or refunds. Zero/negative remaining is represented as used/over budget, without
+negative progress. Currency formatting handles minor
+unit exponents rather than assuming every currency uses cents.
 
+A refresh failure does not reuse an old spending signal. Retrieval expires at
+six hours or local midnight; iOS controls actual refresh timing. Bank transaction
+feeds may lag even when a widget fetch is recent. Credential/generation checks
+prevent old-account names and results from appearing after a login change.
+
+Run the synthetic model tests from `mobile/`:
+
+```sh
+xcrun swiftc -parse-as-library ios/SureWidget/FlexibleSpendingModel.swift \
+  test/native/FlexibleSpendingTests.swift -o /tmp/sure-budget-widget-tests
+/tmp/sure-budget-widget-tests
+```
+
+Coverage includes DST/leap days, early and expired periods, zero/negative/missing
+values, rollover, currency exponents, owner ambiguity and stable category
+selection. Native component renders are not full WidgetKit/gallery lifecycle
+validation. All redesign testing is simulator-only; the physical phone is not a
+live testing target.
 
 ## Separate follow-ups
 
-Signed-device shared-Keychain and privacy/lifecycle validation remain
-before live credential use. Upstream #4489 (bulk budget actuals and uncategorized
+Shared-Keychain and privacy/lifecycle validation remain unverified. This is a
+test-coverage limitation, not a known credential exposure. Upstream #4489 (bulk budget actuals and uncategorized
 totals) and #4705 (browser notifications) are candidates for separate review, not
 included in this integration. Each changes backend behavior and needs independent
 validation before deployment. Sure Insights currently needs contextual filtering
@@ -253,3 +233,26 @@ The final full Rails rerun was interrupted to reduce laptop load; its temporary
 app, Redis and PostgreSQL containers were stopped without deleting volumes. This
 is not a passing full-suite result. Native regression checks, Flutter's 320 tests,
 analysis (informational notices only), and Ruby/ERB/Biome/Brakeman gates passed.
+
+## Redesign validation
+
+Fresh synthetic native component captures grounded the redesign: the previous
+weekly/steer view was dense and its primary number did not match the intervention
+being suggested. The replacement gives each gallery entry one task and one main
+signal. Native captures cover small, medium and Lock Screen layouts, not the full
+WidgetKit gallery or refresh lifecycle. Fixed widget typography is constrained
+to fit; semantic accessibility labels retain the full amounts and meanings.
+
+Remote backend verification: run 43149947064 passed the full unit/integration,
+encryption and system tests plus CI static gates on published commit 5746167e.
+All subsequent local changes are confined to mobile/, so the tested Rails code
+and CI workflow are unchanged. No Docker tests need to run on the laptop for
+these native-only changes.
+
+The final native model suite and unsigned arm64 simulator build pass. Synthetic
+component QA inspected normal, over-budget, missing, stale, old-generation,
+refund/zero and long-label/large-value fixtures in the supported sizes, including
+light/dark. A native Capsule progress bar replaced a platform progress control
+that could not be captured reliably. The redesigned binary has not been installed
+on or live-tested on the physical phone. Existing flexible-spending widgets may
+need removing/re-adding because the AppIntent configuration has been simplified.

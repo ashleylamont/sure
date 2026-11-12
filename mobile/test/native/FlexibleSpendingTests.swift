@@ -3,120 +3,98 @@ import Foundation
 @main
 struct FlexibleSpendingTests {
     static func main() throws {
-        let now = Date()
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
-        let today = formatter.string(from: now)
-        let budget = SpendingBudget(id: "budget", name: "Monthly", startDate: today, endDate: today, initialized: true)
-        func signal(_ cents: Int?, allocation: Int? = 10000, carry: Int? = 0, currency: String = "AUD", formatted: String? = "AU$50.00", inherited: Bool = false, fetched: Date? = nil, period: SpendingBudget? = nil) -> FlexibleSpendingSignal {
-            FlexibleSpendingSignal(category: SpendingCategory(id: "category", budgetID: "budget", currency: currency,
-                category: .init(id: "category-id", name: "Flexible"), available: formatted, availableCents: cents,
-                budgetedCents: allocation, rolloverCents: carry, inheritsParent: inherited), budget: period ?? budget, fetchedAt: fetched ?? now)
+        let zone = TimeZone(identifier: "Australia/Sydney")!
+        func date(_ value: String) -> Date {
+            let f = DateFormatter(); f.calendar = Calendar(identifier: .gregorian)
+            f.locale = Locale(identifier: "en_US_POSIX"); f.timeZone = zone
+            f.dateFormat = "yyyy-MM-dd HH:mm"
+            return f.date(from: value)!
         }
-        precondition(signal(5000).message(at: now) == "Left in this category’s budget")
-        precondition(signal(1).message(at: now) == "Left in this category’s budget", "Near limit is not over budget")
-        precondition(signal(0).message(at: now) == "Budget used · pause extras")
-        precondition(signal(-1).message(at: now) == "Over budget · pause extras")
-        for bad in [signal(nil), signal(1, allocation: nil), signal(1, allocation: 0), signal(1, carry: nil), signal(1, formatted: nil), signal(1, inherited: true)] {
-            precondition(bad.amount(at: now) == nil)
+        let now = date("2026-10-15 12:00")
+        func budget(id: String = "budget", start: String = "2026-10-01", end: String = "2026-10-30",
+                    allocated: Int? = 100000, actual: Int? = 60000, available: Int? = 40000,
+                    currency: String? = "AUD", initialized: Bool = true) -> SpendingBudget {
+            SpendingBudget(id: id, name: "October", startDate: start, endDate: end, initialized: initialized,
+                currency: currency, budgetedCents: allocated, actualCents: actual, availableCents: available)
         }
-        precondition(signal(-500, allocation: 1000, carry: -1500).message(at: now) == "Over budget · pause extras", "Negative carry does not erase a configured budget")
-        precondition(signal(1000, allocation: 0, carry: 2000).amount(at: now) != nil, "Rollover-only envelope is funded")
-        precondition(signal(-1, allocation: 0).message(at: now) == "Set a category budget first")
-        for seconds in [-21600.0, 61.0] {
-            let stale = signal(100, fetched: now.addingTimeInterval(seconds))
-            precondition(stale.amount(at: now) == nil)
-            precondition(stale.message(at: now) == "Open Sure to check newer spending")
+        func snapshot(_ b: SpendingBudget? = nil, fetched: Date? = nil) -> BudgetSnapshot? {
+            BudgetSnapshot(budget: b ?? budget(), fetchedAt: fetched ?? now)
         }
-        for date in ["2000-01-01", "2100-01-01"] {
-            let other = SpendingBudget(id: "budget", name: "Other", startDate: date, endDate: date, initialized: true)
-            precondition(signal(100, period: other).amount(at: now) == nil)
+        let normal = snapshot()!
+        precondition(normal.problem(at: now) == nil)
+        precondition(normal.pace(at: now, timeZone: zone) == Decimal(string: "1.2"))
+        precondition(normal.projection(at: now) == 120000)
+        precondition(normal.usedFraction(at: now) == 0.6)
+        precondition(normal.remainingLabel == "remaining")
+        precondition(normal.paceLabel(at: now) == "Above even pace")
+        precondition(snapshot(budget(actual: 50000))!.pace(at: now, timeZone: zone) == 1)
+        precondition(snapshot(budget(actual: 0))!.pace(at: now, timeZone: zone) == 0)
+        precondition(snapshot(budget(actual: 0))!.paceLabel(at: now) == "Below even pace")
+        let over = snapshot(budget(actual: 120000, available: -20000))!
+        precondition(over.remainingLabel == "over budget")
+        precondition(!over.remainingText.contains("-"))
+        precondition(over.usedFraction(at: now) == 1)
+        for bad in [budget(start: "2026-10-16"), budget(end: "2026-10-14"),
+                    budget(start: "2026-10-32"), budget(initialized: false)] {
+            precondition(snapshot(bad)!.problem(at: now) != nil)
+            precondition(snapshot(bad)!.pace(at: now, timeZone: zone) == nil)
         }
-        let uninitialized = SpendingBudget(id: "budget", name: "Draft", startDate: today, endDate: today, initialized: false)
-        precondition(signal(100, period: uninitialized).amount(at: now) == nil)
-        for (currency, amount) in [("AUD", "AU$50.00"), ("JPY", "¥500"), ("KWD", "KWD 1.234")] {
-            precondition(signal(100, currency: currency, formatted: amount).amount(at: now) == amount, "Never reinterpret currency minor units")
+        for factual in [budget(allocated: 0, actual: 1000, available: -1000),
+                        budget(allocated: -1), budget(actual: -1000, available: 101000)] {
+            let value = snapshot(factual)!
+            precondition(value.problem(at: now) == nil, "Remaining stays factual with zero budget or refunds")
+            precondition(value.usedFraction(at: now) == nil, "No progress with invalid denominator or refund net")
+            precondition(value.paceProblem(at: now) != nil)
+            precondition(value.pace(at: now) == nil)
         }
-        let json = #"{"id":"category","budget_id":"budget","currency":"AUD","category":{"id":"category-id","name":"Flexible"},"available_to_spend":"AU$1.00","available_to_spend_cents":100,"display_budgeted_spending_cents":0,"rolled_over_amount_cents":100,"inherits_parent_budget":false}"#
-        let decoded = try JSONDecoder().decode(SpendingCategory.self, from: Data(json.utf8))
-        precondition(decoded.availableCents == 100 && decoded.rolloverCents == 100)
-        let category = signal(100).category
-        func accepted(_ c: SpendingCategory? = nil, _ b: SpendingBudget? = nil, selected: String = "category", current: Int = 7, shown: Bool = true) -> FlexibleSpendingSignal? {
-            FlexibleSpendingResult.accept(category: c, budget: b, selectedID: selected, startedGeneration: 7,
-                currentGeneration: current, showDetails: shown, fetchedAt: now)
+        for bad in [budget(allocated: nil), budget(actual: nil), budget(available: nil), budget(currency: nil), budget(currency: "XYZ")] {
+            precondition(snapshot(bad) == nil)
         }
-        precondition(accepted(category, budget) != nil)
-        precondition(accepted(category, budget, current: 8) == nil, "Logout or login switch drops in-flight response")
-        precondition(accepted(category, budget, shown: false) == nil, "Hidden details cannot produce guidance")
-        precondition(accepted(category, budget, selected: "removed-category") == nil)
-        precondition(accepted(nil, budget) == nil, "Failed/missing category response never uses cached guidance")
-        precondition(accepted(category, nil) == nil, "Failed/missing budget response never uses cached guidance")
-        let mismatched = SpendingBudget(id: "another-owner-budget", name: "Other", startDate: today, endDate: today, initialized: true)
-        precondition(accepted(category, mismatched) == nil)
-        precondition(FlexibleCategoryLabels.unambiguous(["Fun · May", "Fun · May", "Groceries · May"]) == ["Groceries · May"])
-        precondition(FlexibleCategoryLabels.unambiguous(["Fun · May", "Fun · May"]).isEmpty)
-        precondition(FlexibleCategoryLabels.unambiguous([]).isEmpty)
-        var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = TimeZone(identifier: "Australia/Sydney")!
-        func day(_ text: String) -> Date {
-            let f = DateFormatter(); f.calendar = cal; f.timeZone = cal.timeZone
-            f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "yyyy-MM-dd HH:mm"
-            return f.date(from: text)!
+        precondition(snapshot(fetched: now.addingTimeInterval(-21600))!.problem(at: now) != nil)
+        precondition(snapshot(fetched: now.addingTimeInterval(61))!.problem(at: now) != nil)
+        precondition(snapshot(fetched: now.addingTimeInterval(-21599))!.problem(at: now) == nil)
+        precondition(budget().days(at: now, timeZone: zone)?.elapsed == 15)
+        precondition(budget().days(at: now, timeZone: zone)?.total == 30)
+        precondition(BudgetDays(start: "2024-02-01", end: "2024-02-29", now: date("2024-02-29 12:00"), timeZone: zone)?.total == 29)
+        precondition(BudgetDays(start: "2026-10-04", end: "2026-10-04", now: date("2026-10-04 12:00"), timeZone: zone)?.total == 1)
+        precondition(BudgetDays(start: "2026-10-01", end: "2026-10-30", now: date("2026-10-01 00:01"), timeZone: zone)?.early == true)
+        precondition(BudgetDays(start: "2026-10-01", end: "2026-10-30", now: date("2026-10-07 12:00"), timeZone: zone)?.early == false)
+        precondition(BudgetDays(start: "2026-02-30", end: "2026-03-30", now: date("2026-03-15 12:00"), timeZone: zone) == nil)
+
+        func category(id: String = "row", stableID: String = "category", owner: String = "budget", inherited: Bool = false,
+                      actual: Int? = 60000, remaining: Int? = 90000) -> SpendingCategory {
+            SpendingCategory(id: id, budgetID: owner, currency: "AUD", category: .init(id: stableID, name: "Fun"),
+                availableCents: remaining, actualCents: actual, inheritsParent: inherited)
         }
-        let check = day("2026-10-15 12:00")
-        let month = SpendingBudget(id: "budget", name: "October", startDate: "2026-10-01", endDate: "2026-10-31", initialized: true)
-        func pooled(_ id: String = "a", remaining: Int = 17000, spent: Int? = 30000, currency: String = "AUD", parent: String? = nil, period: SpendingBudget? = nil) -> FlexibleSpendingSignal {
-            // Category is immutable on the response, so construct with explicit ancestry.
-            let category = SpendingCategory(id: id, budgetID: "budget", currency: currency,
-                category: .init(id: id, name: id, parentID: parent), available: "formatted", availableCents: remaining,
-                budgetedCents: 47000, rolloverCents: 0, inheritsParent: false, actualCents: spent)
-            return FlexibleSpendingSignal(category: category, budget: period ?? month, fetchedAt: check)
-        }
-        let pool = SpendingPool(signals: [pooled()])
-        precondition(pool.valid(at: check))
-        precondition(pool.days(at: check, calendar: cal)?.elapsed == 15, "DST uses civil days")
-        precondition(pool.days(at: check, calendar: cal)?.remaining == 17)
-        precondition(pool.weeklyGuide(at: check) == 7000)
-        precondition(pool.periodWeeklyAverage(at: check) == 14000)
-        precondition(pool.suggestedReduction(at: check) == 7000)
-        precondition(SpendingPool(signals: [pooled(), pooled("b")]).remaining(at: check) == 34000)
-        precondition(!SpendingPool(signals: [pooled(), pooled()]).valid(at: check))
-        precondition(!SpendingPool(signals: [pooled(), pooled("b", parent: "a")]).valid(at: check))
-        precondition(!SpendingPool(signals: [pooled(), pooled("b", currency: "JPY")]).valid(at: check))
-        precondition(!SpendingPool(signals: []).valid(at: check))
-        precondition(!SpendingPool(signals: (0..<6).map { pooled(String($0)) }).valid(at: check))
-        for left in [0, -100] {
-            let used = SpendingPool(signals: [pooled(remaining: left)])
-            precondition(used.weeklyGuide(at: check) == nil && used.suggestedReduction(at: check) == nil)
-        }
-        for actual in [nil, -100] as [Int?] {
-            precondition(SpendingPool(signals: [pooled(spent: actual)]).periodWeeklyAverage(at: check) == nil)
-        }
-        let firstWeek = SpendingBudget(id: "budget", name: "Short", startDate: "2026-10-10", endDate: "2026-10-17", initialized: true)
-        let short = SpendingPool(signals: [pooled(period: firstWeek)])
-        precondition(short.weeklyGuide(at: check) == 17000, "Final three-day amount is not labelled per week")
-        precondition(short.periodWeeklyAverage(at: check) == nil, "Wait seven days for estimate")
-        precondition(pool.pacePosition(at: check) == .easeOff)
-        precondition(SpendingPool(signals: [pooled(spent: 15001)]).pacePosition(at: check) == .aroundPlan)
-        precondition(SpendingPool(signals: [pooled(spent: 15000)]).pacePosition(at: check) == .withinPlan)
-        precondition(SpendingPool(signals: [pooled(spent: nil)]).pacePosition(at: check) == nil)
-        precondition(pool.needsCutback(at: check))
-        // Sustainable 7000/week: 10% threshold = 700 minor units; compare boundary.
-        precondition(!SpendingPool(signals: [pooled(spent: 16500)]).needsCutback(at: check))
-        precondition(SpendingPool(signals: [pooled(spent: 16501)]).needsCutback(at: check))
-        precondition(!SpendingPool(signals: [pooled(spent: 15001)]).needsCutback(at: check))
-        precondition(!SpendingPool(signals: [pooled(spent: 0)]).needsCutback(at: check))
-        // Small budgets use a five-major-unit floor rather than sub-unit nudges.
-        precondition(!SpendingPool(signals: [pooled(remaining: 1700, spent: 2571)]).needsCutback(at: check))
-        precondition(SpendingPool(signals: [pooled(remaining: 1700, spent: 2572)]).needsCutback(at: check))
-        for (code, minor, expected) in [("AUD", 1234, 12.34), ("JPY", 1234, 1234.0), ("KWD", 1234, 1.234)] {
-            let value = SpendingPool(signals: [pooled(currency: code)]).format(Decimal(minor))!
+        let rollover = BudgetSnapshot(budget: budget(), category: category(), fetchedAt: now)!
+        precondition(rollover.envelope == 150000, "Use actual plus remaining, preserving category rollover")
+        precondition(rollover.pace(at: now, timeZone: zone) == Decimal(string: "0.8"))
+        precondition(BudgetSnapshot(budget: budget(), category: category(inherited: true), fetchedAt: now) == nil)
+        precondition(BudgetSnapshot(budget: budget(), category: category(owner: "other"), fetchedAt: now) == nil)
+        precondition(BudgetSnapshot(budget: budget(), category: category(actual: nil), fetchedAt: now) == nil)
+        precondition(BudgetSnapshot(budget: budget(), category: category(remaining: nil), fetchedAt: now) == nil)
+        for (code, expected) in [("AUD", 12.34), ("JPY", 1234.0), ("KWD", 1.234)] {
+            let s = snapshot(budget(currency: code))!
             let f = NumberFormatter(); f.numberStyle = .currency; f.currencyCode = code
-            precondition(abs(f.number(from: value)!.doubleValue - expected) < 0.00001, "Currency minor units: \(code): \(value)")
+            precondition(abs(f.number(from: s.formatted(1234))!.doubleValue - expected) < 0.00001)
         }
-        precondition(SpendingPool(signals: [pooled(currency: "XYZ")]).format(1) == nil)
-        print("Flexible spending model and result-gate regression checks passed")
+        // Default/current selection follows months only when the owner is unambiguous.
+        precondition(BudgetSelection.currentBudget([budget()], track: .automatic, at: now)?.id == "budget")
+        precondition(BudgetSelection.currentBudget([budget(), budget(id: "other")], track: .automatic, at: now) == nil)
+        precondition(BudgetSelection.currentBudget([budget(), budget(id: "other")], track: .category("category"), at: now) == nil)
+        precondition(BudgetSelection.currentBudget([budget(), budget(id: "other")], track: .budget("other"), at: now)?.id == "other")
+        precondition(BudgetSelection.currentBudget([budget(end: "2026-10-14")], track: .automatic, at: now) == nil)
+        precondition(BudgetSelection.category([category(id: "new-month-row")], stableID: "category", budgetID: "budget")?.id == "new-month-row")
+        precondition(BudgetSelection.category([category(), category(id: "duplicate")], stableID: "category", budgetID: "budget") == nil)
+        precondition(BudgetSelection.category([category(inherited: true)], stableID: "category", budgetID: "budget") == nil)
+        precondition(BudgetSelection.unambiguousLabels(["November", "November", "Personal"]) == ["Personal"])
+        precondition(BudgetTrack(id: nil) == .automatic)
+        precondition(BudgetTrack(id: "current") == .automatic)
+        precondition(BudgetTrack(id: "budget:../secret") == nil)
+        precondition(BudgetTrack(id: "category:00000000-0000-0000-0000-000000000001") == .category("00000000-0000-0000-0000-000000000001"))
+        let index = #"{"id":"budget","name":"October","start_date":"2026-10-01","end_date":"2026-10-30","initialized":true,"currency":"AUD","budgeted_spending_cents":100000}"#
+        let decoded = try JSONDecoder().decode(SpendingBudget.self, from: Data(index.utf8))
+        precondition(BudgetSnapshot(budget: decoded, fetchedAt: now) == nil, "Index cannot masquerade as detail")
+        print("Budget Remaining/Pace math and selection regression checks passed")
     }
 }
