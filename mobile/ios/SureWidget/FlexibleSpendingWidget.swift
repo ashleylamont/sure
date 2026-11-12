@@ -40,10 +40,21 @@ struct FlexibleCategoryQuery: EntityQuery {
     }
 }
 
+enum FlexibleSpendingStyle: String, AppEnum {
+    case remaining, weeklyGuide, spendingSteer
+    static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Budget view")
+    static let caseDisplayRepresentations: [Self: DisplayRepresentation] = [
+        .remaining: "Remaining budget", .weeklyGuide: "Weekly guide", .spendingSteer: "Spending steer"
+    ]
+}
+
 struct FlexibleSpendingIntent: WidgetConfigurationIntent {
     static let title: LocalizedStringResource = "Flexible spending"
-    static let description = IntentDescription("Choose a flexible category, not bills or a one-off purchase. Remaining budget is not cash safe to spend. Choose again when the budget month changes. Ambiguous category/month names shared by multiple owners are omitted.")
+    static let description = IntentDescription("Choose up to five flexible categories, not bills or planned one-off purchases. Do not combine parents with children. Estimates use the period-to-date average, not recent spending; bank data may lag. Choose again when the budget month changes. This is budget guidance, not cash safe to spend.")
     @Parameter(title: "Flexible category") var category: FlexibleCategoryEntity?
+    @Parameter(title: "Additional flexible categories") var additionalCategories: [FlexibleCategoryEntity]?
+    @Parameter(title: "View", default: .remaining) var style: FlexibleSpendingStyle
+    @Parameter(title: "Estimate from period average", default: false) var estimatePace: Bool
     @Parameter(title: "Show financial details", default: false) var showDetails: Bool
 }
 
@@ -100,6 +111,9 @@ struct FlexibleSpendingEntry: TimelineEntry {
     let message: String
     let generation: Int
     let showDetails: Bool
+    var pool: SpendingPool? = nil
+    var style: FlexibleSpendingStyle = .remaining
+    var estimatePace: Bool = false
 }
 
 struct FlexibleSpendingProvider: AppIntentTimelineProvider {
@@ -128,17 +142,30 @@ struct FlexibleSpendingProvider: AppIntentTimelineProvider {
         guard let entity = configuration.category else { return unavailable("Choose a flexible category in Edit Widget") }
         guard let config = SureWidgetStore.loadConfig(), (config.generation ?? 0) == generation,
               config.apiKey?.isEmpty == false else { return unavailable("Open Sure → Home Screen Widget to connect") }
-        // Entity IDs are server-generated UUIDs, not arbitrary URL fragments.
-        guard UUID(uuidString: entity.id) != nil else { return unavailable("Choose this month’s category") }
+        let entities = [entity] + (configuration.additionalCategories ?? [])
+        guard entities.count <= 5, Set(entities.map(\.id)).count == entities.count,
+              entities.allSatisfy({ UUID(uuidString: $0.id) != nil }) else {
+            return unavailable("Choose up to five different categories")
+        }
         do {
-            let category: SpendingCategory = try await SpendingAPI.read("budget_categories/\(entity.id)", config)
-            guard UUID(uuidString: category.budgetID) != nil else { return unavailable("Budget unavailable") }
-            let budget: SpendingBudget = try await SpendingAPI.read("budgets/\(category.budgetID)", config)
-            guard let signal = FlexibleSpendingResult.accept(category: category, budget: budget,
-                selectedID: entity.id, startedGeneration: generation,
-                currentGeneration: SureWidgetStore.currentGeneration(),
-                showDetails: configuration.showDetails, fetchedAt: Date()) else { return unavailable("Open Sure to reconnect") }
-            return FlexibleSpendingEntry(date: Date(), signal: signal, message: signal.message(at: Date()), generation: generation, showDetails: true)
+            var signals: [FlexibleSpendingSignal] = []
+            for selected in entities {
+                let category: SpendingCategory = try await SpendingAPI.read("budget_categories/\(selected.id)", config)
+                guard UUID(uuidString: category.budgetID) != nil else { return unavailable("Budget unavailable") }
+                let budget: SpendingBudget = try await SpendingAPI.read("budgets/\(category.budgetID)", config)
+                guard let signal = FlexibleSpendingResult.accept(category: category, budget: budget,
+                    selectedID: selected.id, startedGeneration: generation,
+                    currentGeneration: SureWidgetStore.currentGeneration(),
+                    showDetails: configuration.showDetails, fetchedAt: Date()) else { return unavailable("Open Sure to reconnect") }
+                signals.append(signal)
+            }
+            let pool = SpendingPool(signals: signals)
+            guard generation == SureWidgetStore.currentGeneration(), pool.valid(at: Date()) else {
+                return unavailable("Choose funded, separate categories from the same current budget and currency")
+            }
+            return FlexibleSpendingEntry(date: Date(), signal: signals.first,
+                message: "", generation: generation, showDetails: true, pool: pool,
+                style: configuration.style, estimatePace: configuration.estimatePace)
         } catch {
             // No cached financial recommendation after a failed refresh.
             return unavailable("Budget unavailable · open Sure to check")
@@ -148,21 +175,59 @@ struct FlexibleSpendingProvider: AppIntentTimelineProvider {
 
 struct FlexibleSpendingView: View {
     let entry: FlexibleSpendingEntry
+    @Environment(\.widgetFamily) private var family
+    private var compact: Bool { family == .accessoryRectangular }
+
+    private func summary(_ pool: SpendingPool) -> (title: String, amount: String, detail: String) {
+        guard let remaining = pool.remaining(at: entry.date), let formatted = pool.format(remaining) else {
+            return ("Budget unavailable", "", "Open Sure to check")
+        }
+        if remaining <= 0 {
+            return (remaining < 0 ? "Over budget" : "Budget used", formatted, "Pause extras or review the plan")
+        }
+        if entry.style == .remaining { return ("Budget remaining", formatted, "Across selected flexible categories") }
+        guard let allowance = pool.weeklyGuide(at: entry.date), let days = pool.days(at: entry.date),
+              let guide = pool.format(allowance, approximate: true) else {
+            return ("Budget remaining", formatted, "Could not calculate the period")
+        }
+        let horizon = days.remaining < 7 ? "for the final \(days.remaining) days" : "per week until reset"
+        if entry.style == .weeklyGuide {
+            return ("Budget guide", "≈ \(guide) /\(days.remaining < 7 ? "\(days.remaining) days" : "week")", horizon)
+        }
+        guard entry.estimatePace else {
+            return ("Budget guide", "≈ \(guide) /\(days.remaining < 7 ? "\(days.remaining) days" : "week")", "\(horizon) · Pace estimate off")
+        }
+        guard let average = pool.periodWeeklyAverage(at: entry.date),
+              let reduction = pool.suggestedReduction(at: entry.date),
+              let averageText = pool.format(average, approximate: true),
+              let reductionText = pool.format(reduction, approximate: true) else {
+            return ("Budget guide", "≈ \(guide) /\(days.remaining < 7 ? "\(days.remaining) days" : "week")", "\(horizon) · Pace unavailable")
+        }
+        let materialReduction = pool.pacePosition(at: entry.date) == .easeOff
+        let nearPlan = pool.pacePosition(at: entry.date) == .aroundPlan
+        let title = materialReduction ? "Ease off · estimate" : (nearPlan ? "Around plan · estimate" : "Within plan · estimate")
+        return (title, "≈ \(guide) /\(days.remaining < 7 ? "\(days.remaining) days" : "week")",
+                "Period average \(averageText)/week" + (materialReduction ? " · aim ≈ \(reductionText)/week lower" : (nearPlan ? " · close to remaining plan" : " · within remaining plan")))
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Flexible spending").font(.caption.weight(.semibold))
+        VStack(alignment: .leading, spacing: compact ? 2 : 4) {
             if entry.generation != SureWidgetStore.currentGeneration() {
                 Text("Open Sure to connect").font(.caption)
-            } else if entry.showDetails, let signal = entry.signal {
-                Text(signal.category.category.name).font(.headline).lineLimit(1)
-                if let amount = signal.amount(at: entry.date) {
-                    Text("\(amount) \(signal.category.currency)").font(.title2.weight(.semibold)).minimumScaleFactor(0.7).lineLimit(1)
+            } else if entry.showDetails, let pool = entry.pool, pool.valid(at: entry.date), let signal = pool.signals.first {
+                let display = summary(pool)
+                Text(compact ? "\(pool.signals.count == 1 ? signal.category.category.name : "Flex pool") · \(display.title)" : display.title).font(.caption.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.7)
+                Text(display.amount).font(compact ? .headline : .title2.weight(.semibold)).minimumScaleFactor(0.6).lineLimit(1)
+                if compact {
+                    Text("Budget only · updates may lag").font(.caption2).lineLimit(1)
+                } else {
+                    Text(display.detail).font(.caption).lineLimit(2).minimumScaleFactor(0.8)
+                    Text(pool.signals.map { $0.category.category.name }.joined(separator: " + ")).font(.caption2).lineLimit(1)
+                    Text("Ends \(signal.budget.endDate) · \(signal.category.currency)").font(.caption2)
+                    Spacer(minLength: 0)
+                    HStack(spacing: 3) { Text("Fetched"); Text(signal.fetchedAt, style: .time) }.font(.caption2)
+                    Text("Bank updates may lag. Budget, not spendable cash.").font(.caption2).foregroundStyle(.secondary)
                 }
-                Text(signal.message(at: entry.date)).font(.caption)
-                Text("\(signal.budget.name) · ends \(signal.budget.endDate)").font(.caption2).lineLimit(1)
-                Spacer(minLength: 0)
-                HStack(spacing: 3) { Text("Fetched"); Text(signal.fetchedAt, style: .time) }.font(.caption2)
-                Text("Bank updates may lag. Not spendable cash.").font(.caption2).foregroundStyle(.secondary)
             } else {
                 Text(entry.message).font(.caption)
             }
@@ -180,7 +245,7 @@ struct FlexibleSpendingWidget: Widget {
             FlexibleSpendingView(entry: entry)
         }
         .configurationDisplayName("Flexible spending")
-        .description("A selected category’s remaining budget, not a forecast or safe-to-spend amount.")
-        .supportedFamilies([.systemMedium])
+        .description("Try remaining budget, a weekly guide, or an optional period-average spending steer. Not a cash forecast.")
+        .supportedFamilies([.systemMedium, .accessoryRectangular])
     }
 }

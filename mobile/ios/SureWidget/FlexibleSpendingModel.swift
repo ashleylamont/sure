@@ -21,7 +21,9 @@ struct SpendingBudget: Decodable, Sendable {
 }
 
 struct SpendingCategory: Decodable, Sendable {
-    struct Category: Decodable, Sendable { let id: String; let name: String }
+    struct Category: Decodable, Sendable { let id: String; let name: String; var parentID: String? = nil
+        enum CodingKeys: String, CodingKey { case id, name; case parentID = "parent_id" }
+    }
     let id: String
     let budgetID: String
     let currency: String
@@ -31,6 +33,7 @@ struct SpendingCategory: Decodable, Sendable {
     let budgetedCents: Int?
     let rolloverCents: Int?
     let inheritsParent: Bool
+    var actualCents: Int? = nil
     enum CodingKeys: String, CodingKey {
         case id, currency, category
         case budgetID = "budget_id"
@@ -38,6 +41,7 @@ struct SpendingCategory: Decodable, Sendable {
         case budgetedCents = "display_budgeted_spending_cents"
         case rolloverCents = "rolled_over_amount_cents"
         case inheritsParent = "inherits_parent_budget"
+        case actualCents = "actual_spending_cents"
     }
 }
 
@@ -91,5 +95,106 @@ enum FlexibleSpendingResult {
 enum FlexibleCategoryLabels {
     static func unambiguous(_ labels: [String]) -> Set<String> {
         Set(Dictionary(grouping: labels, by: { $0 }).filter { $0.value.count == 1 }.keys)
+    }
+}
+
+
+/// Pure presentation calculations over an explicitly selected, disjoint pool.
+/// This is a budget-rate estimate, never cash affordability or bank freshness.
+struct SpendingPool: Sendable {
+    let signals: [FlexibleSpendingSignal]
+
+    func valid(at now: Date) -> Bool {
+        guard !signals.isEmpty, signals.count <= 5, let first = signals.first,
+              Set(signals.map { $0.category.id }).count == signals.count,
+              Set(signals.map { $0.category.category.id }).count == signals.count,
+              signals.allSatisfy({ $0.amount(at: now) != nil &&
+                  $0.budget.id == first.budget.id && $0.category.currency == first.category.currency &&
+                  $0.budget.startDate == first.budget.startDate && $0.budget.endDate == first.budget.endDate }) else { return false }
+        let categoryIDs = Set(signals.map { $0.category.category.id })
+        return !signals.contains { signal in
+            signal.category.category.parentID.map { categoryIDs.contains($0) } ?? false
+        }
+    }
+
+    func remaining(at now: Date) -> Decimal? {
+        guard valid(at: now) else { return nil }
+        return signals.reduce(Decimal.zero) { $0 + Decimal($1.category.availableCents!) }
+    }
+
+    func days(at now: Date, calendar requestedCalendar: Calendar = .current) -> (elapsed: Int, remaining: Int)? {
+        guard valid(at: now), let budget = signals.first?.budget else { return nil }
+        let formatter = DateFormatter()
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = requestedCalendar.timeZone
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.isLenient = false
+        guard let start = formatter.date(from: budget.startDate), let end = formatter.date(from: budget.endDate),
+              formatter.string(from: start) == budget.startDate, formatter.string(from: end) == budget.endDate else { return nil }
+        let today = calendar.startOfDay(for: now)
+        guard let elapsed = calendar.dateComponents([.day], from: start, to: today).day,
+              let remaining = calendar.dateComponents([.day], from: today, to: end).day,
+              elapsed >= 0, remaining >= 0 else { return nil }
+        // Inclusive calendar days: no 24-hour division across daylight saving.
+        return (elapsed + 1, remaining + 1)
+    }
+
+    func weeklyGuide(at now: Date) -> Decimal? {
+        guard let remaining = remaining(at: now), let days = days(at: now), remaining > 0 else { return nil }
+        return remaining * Decimal(min(7, days.remaining)) / Decimal(days.remaining)
+    }
+
+    func periodWeeklyAverage(at now: Date) -> Decimal? {
+        guard let days = days(at: now), days.elapsed >= 7,
+              signals.allSatisfy({ ($0.category.actualCents ?? -1) >= 0 }) else { return nil }
+        let spent = signals.reduce(Decimal.zero) { $0 + Decimal($1.category.actualCents!) }
+        return spent * 7 / Decimal(days.elapsed)
+    }
+
+    func suggestedReduction(at now: Date) -> Decimal? {
+        guard let average = periodWeeklyAverage(at: now), let left = remaining(at: now),
+              let days = days(at: now), left > 0 else { return nil }
+        return max(0, average - left * 7 / Decimal(days.remaining))
+    }
+
+    func needsCutback(at now: Date) -> Bool {
+        guard let reduction = suggestedReduction(at: now), let left = remaining(at: now),
+              let days = days(at: now), let code = signals.first?.category.currency,
+              Locale.commonISOCurrencyCodes.contains(code) else { return false }
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = code
+        let fiveMajorUnits = 5 * pow(Decimal(10), formatter.maximumFractionDigits)
+        let sustainableWeeklyRate = left * 7 / Decimal(days.remaining)
+        return reduction > max(fiveMajorUnits, sustainableWeeklyRate / 10)
+    }
+
+    enum PacePosition { case withinPlan, aroundPlan, easeOff }
+
+    func pacePosition(at now: Date) -> PacePosition? {
+        guard let reduction = suggestedReduction(at: now) else { return nil }
+        if needsCutback(at: now) { return .easeOff }
+        return reduction > 0 ? .aroundPlan : .withinPlan
+    }
+
+    func format(_ minorUnits: Decimal, approximate: Bool = false) -> String? {
+        guard let code = signals.first?.category.currency,
+              Locale.commonISOCurrencyCodes.contains(code) else { return nil }
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = code
+        let divisor = pow(Decimal(10), formatter.maximumFractionDigits)
+        var value = minorUnits / divisor
+        if approximate {
+            var rounded = Decimal()
+            NSDecimalRound(&rounded, &value, 0, .down)
+            value = rounded
+            formatter.minimumFractionDigits = 0
+            formatter.maximumFractionDigits = 0
+        }
+        return formatter.string(from: value as NSDecimalNumber)
     }
 }

@@ -4,7 +4,8 @@ This integration layers upstream PR [#4679](https://github.com/we-promise/sure/p
 (commit `f459b7798a6c1655f79de01f262e2b6f7b733026`) onto the fork's upstream sync.
 It is experimental and separate from `main`. The original widget displays account
 balances and net worth. A separate experimental Flexible spending widget now
-shows one explicitly selected category’s remaining budget, not budget pace.
+offers remaining-budget, weekly-guide and optional period-average views for an
+explicitly selected flexible-spending pool.
 
 The fork additionally invalidates in-flight widget refreshes when the API key,
 server URL or proxy headers change. Run its native regression checks on macOS:
@@ -65,35 +66,48 @@ host Mac locked before UI inspection.
 - Test logout, key/server changes, failed refresh, stale data and privacy mode.
   Widget refresh frequency is ultimately controlled by iOS.
 
-## Small follow-ups to evaluate
-
-A budget-progress widget can reuse existing budget detail/category endpoints and
-Sure Insights rather than introducing another ledger or prediction engine. Pick
-explicit flexible categories, preserve server-calculated amounts and currency,
-show freshness, and avoid treating fixed bills or lumpy purchases as linear daily
-spending. Label remaining budget accurately; it is not cash safe to spend.
-
-Upstream candidates worth reviewing separately include #4489 (bulk budget actuals
-and uncategorized totals) and #4705 (browser notifications). They are not included
-in this widget integration; each changes backend behavior and needs independent
-validation before deployment.
-
 ## Flexible spending widget
 
-Add the medium-size **Flexible spending** widget, then Edit Widget to choose a
-category and enable **Show financial details** (off by default). Choose flexible
-spending rather than bills or lumpy one-off purchases. Each widget uses one
-budget-category ID, avoiding summed parent/child budgets and currency mixing.
-Add more widgets for other categories. At month end, select the new month’s
-category explicitly; it never silently switches owners or budget months.
+Add the medium Home Screen or rectangular Lock Screen **Flexible spending**
+widget. In Edit Widget, choose **Remaining budget**, **Weekly guide**, or
+**Spending steer**. Add several copies with different views to compare.
+Enable **Show financial details** explicitly; it is off by default.
 
-The amount is the server’s formatted `available_to_spend`, including rollover,
-read from the category **detail** endpoint. The index omits derived actuals.
+Select one category plus up to four additional flexible categories from the same
+current budget and currency. Duplicates, inherited/shared child budgets and
+parent/child combinations fail closed. Fixed bills and planned lumpy purchases
+are not suitable: the user chooses which categories are flexible. At month end,
+select the new month's categories explicitly; the widget never silently switches
+owners or budget months.
+
+The widget reads each selected category's **detail** endpoint, because the index
+omits derived actuals. It sums the integer minor-unit `available_to_spend_cents`
+amounts, including rollover, and formats the result in their shared currency.
 A positive monthly allocation or positive rollover counts as a configured
-budget. A negative rollover does not hide overspending against a positive
-allocation. Inherited/shared child categories are excluded. Zero remaining
-means the budget is used; negative means over budget. Near the limit is not
-called over budget. No daily pacing, cash forecast or raw Insight is shown.
+budget. Negative rollover does not hide overspending against a positive
+allocation. Zero remaining means the budget is used; negative means over budget.
+Near the limit is not called over budget. No cash forecast or raw Insight is shown.
+
+- **Remaining budget** shows the pool's remaining or over-budget amount.
+- **Weekly guide** divides remaining budget across the inclusive calendar days
+  to reset. In the final partial week it shows the total for those remaining
+  days, not a seven-day amount. This recalculates as spending arrives; it is not
+  a fixed weekly envelope.
+- **Spending steer** optionally compares that rate with the **period-to-date
+  average** after at least seven calendar days. It does not claim recent 14-day
+  history. Enable **Estimate from period average** to try it; otherwise it falls
+  back to the weekly guide. Only a reduction above both 10% of the sustainable
+  weekly rate and five major currency units produces an “Ease off” warning.
+  A smaller positive reduction says “Around plan”; zero says “Within plan”.
+  Missing/negative actuals suppress the comparison. Exhausted budgets show
+  pause/review, never negative daily allowances. Approximate rates use whole
+  currency units with the correct currency exponent (for example JPY vs KWD).
+
+All views use retrieved budget records, not a bank-sync completeness guarantee.
+If recent transactions are delayed or miscategorised, disable the pace estimate
+and use remaining budget with caution. The API has no reliable per-category
+feed-completeness signal; no automatic completeness claim is made. No transaction
+queries or background snapshot service were added.
 
 “Fetched” is only the API retrieval time: bank updates may lag. Failed requests
 show unavailable rather than cached guidance. Timeline guidance expires after
@@ -128,7 +142,18 @@ xcrun swiftc -target arm64-apple-macosx15.0 \
 
 These cover near/zero/over-budget, rollover-only and negative-carry funding,
 missing fields, stale/future timestamps, expired/uninitialized periods,
-server-preserved AUD/JPY/KWD formatting, hidden details, missing responses,
-selection mismatch and session invalidation. They are not an end-to-end network
+AUD/JPY/KWD formatting, pooled-category validation, daylight-saving dates,
+partial weeks, missing/negative actuals, materiality boundaries, hidden details,
+missing responses, selection mismatch and session invalidation. They are not an end-to-end network
 or WidgetKit lifecycle test. Live category discovery, system privacy redaction,
 logout rendering and month transition still need signed-device testing.
+
+
+## Separate follow-ups
+
+Shared Keychain storage and signed-device privacy/lifecycle validation remain
+before live credential use. Upstream #4489 (bulk budget actuals and uncategorized
+totals) and #4705 (browser notifications) are candidates for separate review, not
+included in this integration. Each changes backend behavior and needs independent
+validation before deployment. Sure Insights currently needs contextual filtering
+and wording fixes before it is suitable for direct widget presentation.

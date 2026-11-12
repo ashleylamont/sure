@@ -58,6 +58,65 @@ struct FlexibleSpendingTests {
         precondition(FlexibleCategoryLabels.unambiguous(["Fun · May", "Fun · May", "Groceries · May"]) == ["Groceries · May"])
         precondition(FlexibleCategoryLabels.unambiguous(["Fun · May", "Fun · May"]).isEmpty)
         precondition(FlexibleCategoryLabels.unambiguous([]).isEmpty)
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "Australia/Sydney")!
+        func day(_ text: String) -> Date {
+            let f = DateFormatter(); f.calendar = cal; f.timeZone = cal.timeZone
+            f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "yyyy-MM-dd HH:mm"
+            return f.date(from: text)!
+        }
+        let check = day("2026-10-15 12:00")
+        let month = SpendingBudget(id: "budget", name: "October", startDate: "2026-10-01", endDate: "2026-10-31", initialized: true)
+        func pooled(_ id: String = "a", remaining: Int = 17000, spent: Int? = 30000, currency: String = "AUD", parent: String? = nil, period: SpendingBudget? = nil) -> FlexibleSpendingSignal {
+            // Category is immutable on the response, so construct with explicit ancestry.
+            let category = SpendingCategory(id: id, budgetID: "budget", currency: currency,
+                category: .init(id: id, name: id, parentID: parent), available: "formatted", availableCents: remaining,
+                budgetedCents: 47000, rolloverCents: 0, inheritsParent: false, actualCents: spent)
+            return FlexibleSpendingSignal(category: category, budget: period ?? month, fetchedAt: check)
+        }
+        let pool = SpendingPool(signals: [pooled()])
+        precondition(pool.valid(at: check))
+        precondition(pool.days(at: check, calendar: cal)?.elapsed == 15, "DST uses civil days")
+        precondition(pool.days(at: check, calendar: cal)?.remaining == 17)
+        precondition(pool.weeklyGuide(at: check) == 7000)
+        precondition(pool.periodWeeklyAverage(at: check) == 14000)
+        precondition(pool.suggestedReduction(at: check) == 7000)
+        precondition(SpendingPool(signals: [pooled(), pooled("b")]).remaining(at: check) == 34000)
+        precondition(!SpendingPool(signals: [pooled(), pooled()]).valid(at: check))
+        precondition(!SpendingPool(signals: [pooled(), pooled("b", parent: "a")]).valid(at: check))
+        precondition(!SpendingPool(signals: [pooled(), pooled("b", currency: "JPY")]).valid(at: check))
+        precondition(!SpendingPool(signals: []).valid(at: check))
+        precondition(!SpendingPool(signals: (0..<6).map { pooled(String($0)) }).valid(at: check))
+        for left in [0, -100] {
+            let used = SpendingPool(signals: [pooled(remaining: left)])
+            precondition(used.weeklyGuide(at: check) == nil && used.suggestedReduction(at: check) == nil)
+        }
+        for actual in [nil, -100] as [Int?] {
+            precondition(SpendingPool(signals: [pooled(spent: actual)]).periodWeeklyAverage(at: check) == nil)
+        }
+        let firstWeek = SpendingBudget(id: "budget", name: "Short", startDate: "2026-10-10", endDate: "2026-10-17", initialized: true)
+        let short = SpendingPool(signals: [pooled(period: firstWeek)])
+        precondition(short.weeklyGuide(at: check) == 17000, "Final three-day amount is not labelled per week")
+        precondition(short.periodWeeklyAverage(at: check) == nil, "Wait seven days for estimate")
+        precondition(pool.pacePosition(at: check) == .easeOff)
+        precondition(SpendingPool(signals: [pooled(spent: 15001)]).pacePosition(at: check) == .aroundPlan)
+        precondition(SpendingPool(signals: [pooled(spent: 15000)]).pacePosition(at: check) == .withinPlan)
+        precondition(SpendingPool(signals: [pooled(spent: nil)]).pacePosition(at: check) == nil)
+        precondition(pool.needsCutback(at: check))
+        // Sustainable 7000/week: 10% threshold = 700 minor units; compare boundary.
+        precondition(!SpendingPool(signals: [pooled(spent: 16500)]).needsCutback(at: check))
+        precondition(SpendingPool(signals: [pooled(spent: 16501)]).needsCutback(at: check))
+        precondition(!SpendingPool(signals: [pooled(spent: 15001)]).needsCutback(at: check))
+        precondition(!SpendingPool(signals: [pooled(spent: 0)]).needsCutback(at: check))
+        // Small budgets use a five-major-unit floor rather than sub-unit nudges.
+        precondition(!SpendingPool(signals: [pooled(remaining: 1700, spent: 2571)]).needsCutback(at: check))
+        precondition(SpendingPool(signals: [pooled(remaining: 1700, spent: 2572)]).needsCutback(at: check))
+        for (code, minor, expected) in [("AUD", 1234, 12.34), ("JPY", 1234, 1234.0), ("KWD", 1234, 1.234)] {
+            let value = SpendingPool(signals: [pooled(currency: code)]).format(Decimal(minor))!
+            let f = NumberFormatter(); f.numberStyle = .currency; f.currencyCode = code
+            precondition(abs(f.number(from: value)!.doubleValue - expected) < 0.00001, "Currency minor units: \(code): \(value)")
+        }
+        precondition(SpendingPool(signals: [pooled(currency: "XYZ")]).format(1) == nil)
         print("Flexible spending model and result-gate regression checks passed")
     }
 }
