@@ -30,6 +30,8 @@ struct SpendingCategory: Decodable, Sendable {
     struct Category: Decodable, Sendable {
         let id: String
         let name: String
+        var parentID: String? = nil
+        enum CodingKeys: String, CodingKey { case id, name; case parentID = "parent_id" }
     }
     let id: String
     let budgetID: String
@@ -103,6 +105,39 @@ enum BudgetSelection {
         let matches = categories.filter { $0.category.id == stableID && $0.budgetID == budgetID && !$0.inheritsParent }
         return matches.count == 1 ? matches.first : nil
     }
+    /// A parent already includes descendant actuals/rollover. Coalesce selections
+    /// using the complete current hierarchy before reading/summing details.
+    static func areas(_ categories: [SpendingCategory], selectedIDs: [String], budgetID: String) -> [SpendingCategory]? {
+        let selected = Set(selectedIDs)
+        guard !selected.isEmpty else { return [] }
+        let grouped = Dictionary(grouping: categories.filter { $0.budgetID == budgetID }, by: { $0.category.id })
+        guard selected.allSatisfy({ grouped[$0]?.count == 1 }),
+              Set(selected.compactMap { grouped[$0]?.first?.currency }).count == 1 else { return nil }
+        var retained: [SpendingCategory] = []
+        for id in selected {
+            guard let category = grouped[id]?.first else { return nil }
+            var ancestor = category.category.parentID
+            var visited: Set<String> = [id]
+            var covered = false
+            while let parent = ancestor {
+                guard visited.insert(parent).inserted else { return nil }
+                if selected.contains(parent) { covered = true }
+                guard let nodes = grouped[parent], nodes.count == 1, let node = nodes.first else {
+                    // One category cannot overlap anything; an absent ancestor
+                    // is only unsafe when combining several areas.
+                    if selected.count == 1 { break }
+                    return nil
+                }
+                ancestor = node.category.parentID
+            }
+            if !covered {
+                guard !category.inheritsParent else { return nil }
+                retained.append(category)
+            }
+        }
+        return retained.sorted { $0.category.name.localizedStandardCompare($1.category.name) == .orderedAscending }
+    }
+
     static func unambiguousLabels(_ labels: [String]) -> Set<String> {
         Set(Dictionary(grouping: labels, by: { $0 }).filter { $0.value.count == 1 }.keys)
     }
@@ -116,24 +151,38 @@ struct BudgetSnapshot: Sendable {
     let remaining: Decimal
     let envelope: Decimal
     let fetchedAt: Date
+    let areaCount: Int
+    var displayScope: String {
+        if areaCount > 2 || (areaCount > 1 && scope.count > 20) { return "\(areaCount) areas" }
+        if scope.count > 20 { return areaCount == 0 ? "Whole budget" : "Selected area" }
+        return scope
+    }
 
     init?(budget: SpendingBudget, category: SpendingCategory? = nil, fetchedAt: Date) {
+        self.init(budget: budget, categories: category.map { [$0] } ?? [],
+                  selectedIDs: category.map { [$0.category.id] } ?? [], fetchedAt: fetchedAt)
+    }
+
+    init?(budget: SpendingBudget, categories: [SpendingCategory], selectedIDs: [String], fetchedAt: Date) {
         self.budget = budget
         self.fetchedAt = fetchedAt
-        if let category {
-            guard category.budgetID == budget.id, !category.inheritsParent,
-                  let actual = category.actualCents, let available = category.availableCents else { return nil }
-            scope = category.category.name
-            currency = category.currency
-            spent = Decimal(actual)
-            remaining = Decimal(available)
-            // Category detail includes own/child rollover in available. Summing
-            // actual + available preserves that effective envelope exactly once.
-            envelope = Decimal(actual) + Decimal(available)
+        if !selectedIDs.isEmpty {
+            guard let selected = BudgetSelection.areas(categories, selectedIDs: selectedIDs, budgetID: budget.id),
+                  !selected.isEmpty, let first = selected.first,
+                  selected.allSatisfy({ $0.currency == first.currency && $0.actualCents != nil && $0.availableCents != nil }),
+                  budget.currency == nil || budget.currency == first.currency else { return nil }
+            scope = selected.map { $0.category.name }.joined(separator: " + ")
+            areaCount = selected.count
+            currency = first.currency
+            spent = selected.reduce(Decimal.zero) { $0 + Decimal($1.actualCents!) }
+            remaining = selected.reduce(Decimal.zero) { $0 + Decimal($1.availableCents!) }
+            // Each nonoverlapping area's actual + available preserves rollover once.
+            envelope = spent + remaining
         } else {
             guard let currency = budget.currency, let actual = budget.actualCents,
                   let available = budget.availableCents, let allocation = budget.budgetedCents else { return nil }
             self.currency = currency
+            areaCount = 0
             scope = budget.name
             spent = Decimal(actual)
             remaining = Decimal(available)
@@ -182,6 +231,8 @@ struct BudgetSnapshot: Sendable {
         let major = minorUnits / pow(Decimal(10), formatter.maximumFractionDigits)
         return formatter.string(from: major as NSDecimalNumber) ?? "—"
     }
+    var compactRemainingText: String { CompactWidgetMoney.format(minorUnits: remaining < 0 ? -remaining : remaining, currency: currency) }
+
     var remainingText: String { formatted(remaining < 0 ? -remaining : remaining) }
     var remainingLabel: String { remaining < 0 ? "over budget" : "remaining" }
     var endLabel: String {
@@ -192,5 +243,39 @@ struct BudgetSnapshot: Sendable {
         guard let date = formatter.date(from: budget.endDate) else { return budget.endDate }
         formatter.setLocalizedDateFormatFromTemplate("d MMM")
         return formatter.string(from: date)
+    }
+}
+
+/// Explicit approximation for tiny circles; exact figures stay in accessibility.
+enum CompactWidgetMoney {
+    static func format(minorUnits: Decimal, currency: String) -> String {
+        guard Locale.commonISOCurrencyCodes.contains(currency) else { return "—" }
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = currency
+        let major = (minorUnits < 0 ? -minorUnits : minorUnits) / pow(Decimal(10), formatter.maximumFractionDigits)
+        let units: [(Decimal, String)] = [(1_000_000_000_000, "T"), (1_000_000_000, "B"), (1_000_000, "M"), (1000, "k")]
+        // Promote values that round to the next suffix, rather than 1000k.
+        let scale = units.first { major >= $0.0 * Decimal(string: "0.9995")! }
+        let scaled = major / (scale?.0 ?? 1)
+        let number = NumberFormatter()
+        number.locale = Locale(identifier: "en_US_POSIX")
+        number.numberStyle = .decimal
+        number.usesGroupingSeparator = false
+        number.minimumFractionDigits = 0
+        number.maximumFractionDigits = scale == nil || scaled >= 10 ? 0 : 1
+        let digits = number.string(from: scaled as NSDecimalNumber) ?? "—"
+        // The full currency and exact amount remain in the accessibility label.
+        // A generic currency mark is omitted if the code's symbol is too long.
+        let symbol = formatter.currencySymbol ?? ""
+        let shortSymbol = symbol.count <= 2 ? symbol : ""
+        let sign = minorUnits < 0 ? "−" : ""
+        if major > 0 && major < 1 { return sign + "<" + shortSymbol + "1" }
+        if major >= 1_000_000_000_000_000 {
+            number.numberStyle = .scientific
+            number.maximumFractionDigits = 1
+            return "≈" + sign + shortSymbol + (number.string(from: major as NSDecimalNumber) ?? "—")
+        }
+        return "≈" + sign + shortSymbol + digits + (scale?.1 ?? "")
     }
 }

@@ -95,6 +95,41 @@ struct FlexibleSpendingTests {
         let index = #"{"id":"budget","name":"October","start_date":"2026-10-01","end_date":"2026-10-30","initialized":true,"currency":"AUD","budgeted_spending_cents":100000}"#
         let decoded = try JSONDecoder().decode(SpendingBudget.self, from: Data(index.utf8))
         precondition(BudgetSnapshot(budget: decoded, fetchedAt: now) == nil, "Index cannot masquerade as detail")
+        func area(_ id: String, name: String? = nil, parent: String? = nil, budgetID: String = "budget", currency: String = "AUD", spent: Int? = 1000, left: Int? = 2000, inherited: Bool = false) -> SpendingCategory {
+            SpendingCategory(id: "row-" + id, budgetID: budgetID, currency: currency,
+                category: .init(id: id, name: name ?? id, parentID: parent), availableCents: left,
+                actualCents: spent, inheritsParent: inherited)
+        }
+        let hierarchy = [area("parent", spent: 3000, left: 4000), area("child", parent: "parent"), area("grandchild", parent: "child"), area("other")]
+        let coalesced = BudgetSelection.areas(hierarchy, selectedIDs: ["parent", "child", "grandchild", "parent"], budgetID: "budget")!
+        precondition(coalesced.map { $0.category.id } == ["parent"], "Parent includes descendants once; duplicates coalesce")
+        let pooled = BudgetSnapshot(budget: budget(), categories: hierarchy, selectedIDs: ["parent", "child", "other"], fetchedAt: now)!
+        precondition(pooled.spent == 4000 && pooled.remaining == 6000 && pooled.envelope == 10000)
+        precondition(BudgetSelection.areas(hierarchy, selectedIDs: ["parent", "missing"], budgetID: "budget") == nil)
+        precondition(BudgetSelection.areas([area("a", parent: "absent"), area("b")], selectedIDs: ["a", "b"], budgetID: "budget") == nil)
+        precondition(BudgetSelection.areas([area("a", parent: "b"), area("b", parent: "a")], selectedIDs: ["a", "b"], budgetID: "budget") == nil)
+        precondition(BudgetSelection.areas([area("a"), area("b", currency: "JPY")], selectedIDs: ["a", "b"], budgetID: "budget") == nil)
+        precondition(BudgetSelection.areas([area("a"), area("b", budgetID: "other")], selectedIDs: ["a", "b"], budgetID: "budget") == nil)
+        precondition(BudgetSnapshot(budget: budget(), categories: [area("a"), area("b", spent: nil)], selectedIDs: ["a", "b"], fetchedAt: now) == nil)
+        precondition(BudgetSnapshot(budget: budget(), categories: [area("a"), area("b", left: nil)], selectedIDs: ["a", "b"], fetchedAt: now) == nil)
+        precondition(BudgetSelection.areas([area("a"), area("b", parent: "a", inherited: true)], selectedIDs: ["a", "b"], budgetID: "budget")?.count == 1)
+        precondition(BudgetSelection.areas([area("a"), area("b", parent: "a", inherited: true)], selectedIDs: ["b"], budgetID: "budget") == nil)
+        let longScope = BudgetSnapshot(budget: budget(), categories: [area("a", name: "Very long groceries and personal care"), area("b", name: "Other very long discretionary spending")], selectedIDs: ["a", "b"], fetchedAt: now)!
+        precondition(longScope.displayScope == "2 areas" && longScope.scope.contains("Very long"))
+        let monthlyRow = area("stable", budgetID: "new-budget")
+        precondition(BudgetSelection.areas([monthlyRow], selectedIDs: ["stable"], budgetID: "new-budget")?.first?.id == monthlyRow.id)
+        for code in ["AUD", "JPY", "KWD", "CHF"] {
+            precondition(CompactWidgetMoney.format(minorUnits: -123456, currency: code).contains("−"))
+            precondition(CompactWidgetMoney.format(minorUnits: 123456, currency: code).contains("≈"))
+            precondition(!CompactWidgetMoney.format(minorUnits: Decimal(Int.max), currency: code).contains("…"))
+        }
+        precondition(CompactWidgetMoney.format(minorUnits: 99999900, currency: "AUD").contains("1M"), "Promote 1000k rounding")
+        precondition(CompactWidgetMoney.format(minorUnits: 1, currency: "AUD").contains("<"))
+        precondition(CompactWidgetMoney.format(minorUnits: 12345600000, currency: "AUD").contains("123M"), "Large circles use whole scaled units")
+        precondition(CompactWidgetMoney.format(minorUnits: 99950000, currency: "AUD").contains("1M"), "Promote whole-number suffix rounding")
+        precondition(!over.compactRemainingText.contains("−"), "Over label already carries negative meaning")
+        precondition(CompactWidgetMoney.format(minorUnits: 1234000, currency: "KWD").contains("1.2k"))
+        precondition(CompactWidgetMoney.format(minorUnits: 1234, currency: "JPY").contains("1.2k"))
         print("Budget Remaining/Pace math and selection regression checks passed")
     }
 }

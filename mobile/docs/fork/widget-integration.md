@@ -86,14 +86,17 @@ host Mac locked before UI inspection.
   adds projected period-end spending and the budget envelope. It does not tell
   the user to cut back merely because rent or another lumpy expense posted early.
 
-The budget widgets have one **Track** selector. The default is **Current whole
-budget**, automatically following the current period when exactly one budget is
-available. A single category can be selected instead and follows its stable
-category identity across periods. With multiple current budgets, only
-unambiguously named budgets can be selected; category ownership is not guessed.
-An explicitly selected period-specific budget must be reselected after it ends.
-There are no pooled-category, view, estimate-enable or show-details switches.
-System privacy-sensitive rendering remains enabled, consistent with balances.
+The budget widgets have two meaningful controls: **Budget** defaults to the
+unambiguous current budget; optional **Areas** selects any combination of budget
+categories. Leave Areas empty for the whole budget. A parent includes its
+subcategories, so overlapping parent/child choices are counted once, not added
+together twice. Every chosen area must resolve in the same current budget and
+currency; incomplete or ambiguous selections never silently become partial sums.
+Stable category identities follow new periods. An explicitly selected period
+budget must be reselected after it ends. Old single-category configurations ask
+for reselection instead of silently switching to the whole budget.
+There are no view, estimate-enable or show-details switches. System
+privacy-sensitive rendering remains enabled, consistent with balances.
 
 The implementation provides square `systemSmall`, wider `systemMedium`, and
 rectangular plus one-slot `accessoryCircular` Lock Screen layouts. The circular
@@ -245,7 +248,7 @@ to fit; semantic accessibility labels retain the full amounts and meanings.
 
 Remote backend verification: run 43149947064 passed the full unit/integration,
 encryption and system tests plus CI static gates on published commit 5746167e.
-All subsequent local changes are confined to mobile/, so the tested Rails code
+All subsequent changes are native/mobile files and mobile build workflows, so the tested Rails code
 and CI workflow are unchanged. No Docker tests need to run on the laptop for
 these native-only changes.
 
@@ -256,3 +259,19 @@ light/dark. A native Capsule progress bar replaced a platform progress control
 that could not be captured reliably. The redesigned binary has not been installed
 on or live-tested on the physical phone. Existing flexible-spending widgets may
 need removing/re-adding because the AppIntent configuration has been simplified.
+
+
+## Compact text and multiple areas
+
+Circular Pace uses the literal short label “pace”, not a truncated budget/month
+name. Larger layouts summarize long scopes as “3 areas”; full scope is retained
+for accessibility. Compact monetary figures explicitly use approximation and
+short suffixes; negative balances preserve their sign and ISO currency remains
+visible when the usual symbol will not fit. Numeric net-worth metadata comes
+from the API, never from parsing locale-formatted text. Formatted-only updates
+clear old numeric metadata so the tiny and full views cannot disagree.
+
+Flutter CI and app minimum now use 3.44.4, matching the validated toolchain and
+UIScene APIs. The old 3.32.4 CI pin could not compile FlutterImplicitEngineDelegate
+or FlutterSceneDelegate. This updates mobile build/test workflows only, not Rails
+sources or the backend CI workflow.

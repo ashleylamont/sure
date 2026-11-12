@@ -32,6 +32,8 @@ struct SureWidgetSnapshot: Codable, Sendable {
     /// Server-formatted net worth from /api/v1/balance_sheet.
     var netWorth: String?
     var generation: Int?
+    var netWorthAmount: Decimal? = nil
+    var netWorthCurrency: String? = nil
 }
 
 // MARK: - App Group storage
@@ -188,7 +190,7 @@ enum SureWidgetAPI {
 
     /// Fetches the server-computed net worth. Returns nil if it can't be loaded,
     /// so the widget hides net worth rather than showing a stale or local sum.
-    static func fetchNetWorth(config: SureWidgetConfig) async -> String? {
+    static func fetchNetWorth(config: SureWidgetConfig) async -> SureWidgetMoney? {
         guard let apiKey = config.apiKey, !apiKey.isEmpty else { return nil }
         let base = config.baseUrl.hasSuffix("/") ? String(config.baseUrl.dropLast()) : config.baseUrl
         guard let url = URL(string: "\(base)/api/v1/balance_sheet") else { return nil }
@@ -203,7 +205,7 @@ enum SureWidgetAPI {
         guard let result = try? await session.data(for: request),
               (result.1 as? HTTPURLResponse)?.statusCode == 200,
               let decoded = try? JSONDecoder().decode(BalanceSheetResponse.self, from: result.0) else { return nil }
-        return decoded.netWorth?.formatted
+        return decoded.netWorth
     }
 
     /// Fetches fresh balances and stores them. Returns the snapshot to show plus
@@ -220,7 +222,8 @@ enum SureWidgetAPI {
             // The user logged out while this was fetching: drop the result.
             guard SureWidgetStore.hasCurrentConfig(generation: generation) else { return (nil, false, true) }
             let snapshot = SureWidgetSnapshot(updatedAt: Date(), accounts: accounts,
-                                              netWorth: netWorth, generation: generation)
+                                              netWorth: netWorth?.formatted, generation: generation,
+                                              netWorthAmount: netWorth?.amount, netWorthCurrency: netWorth?.currency)
             SureWidgetStore.saveSnapshot(snapshot)
             return (snapshot, true, false)
         } catch {
@@ -269,9 +272,24 @@ private struct AccountsResponse: Decodable {
     let pagination: Pagination?
 }
 
+struct SureWidgetMoney: Decodable {
+    let formatted: String?
+    let amount: Decimal?
+    let currency: String?
+    enum CodingKeys: String, CodingKey { case formatted, amount, currency }
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        formatted = try values.decodeIfPresent(String.self, forKey: .formatted)
+        currency = try values.decodeIfPresent(String.self, forKey: .currency)
+        if let number = try? values.decode(Decimal.self, forKey: .amount) { amount = number }
+        else if let text = try? values.decode(String.self, forKey: .amount) {
+            amount = Decimal(string: text, locale: Locale(identifier: "en_US_POSIX"))
+        } else { amount = nil }
+    }
+}
+
 private struct BalanceSheetResponse: Decodable {
-    struct MoneyValue: Decodable { let formatted: String? }
-    let netWorth: MoneyValue?
+    let netWorth: SureWidgetMoney?
     enum CodingKeys: String, CodingKey { case netWorth = "net_worth" }
 }
 

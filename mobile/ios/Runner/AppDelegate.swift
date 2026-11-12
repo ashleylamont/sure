@@ -96,6 +96,10 @@ enum WidgetBridge {
                   var existing = readObject(at: snapshotURL) {
           // Keep the saved accounts but take the newer net worth.
           existing["netWorth"] = netWorth
+          // Flutter supplied formatted text only; do not pair it with numeric
+          // metadata from an older API fetch in the compact widget.
+          existing.removeValue(forKey: "netWorthAmount")
+          existing.removeValue(forKey: "netWorthCurrency")
           ok = write(existing, to: snapshotURL) && ok
         }
       }

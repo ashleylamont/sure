@@ -3,7 +3,7 @@ import SwiftUI
 import WidgetKit
 
 struct BudgetTrackEntity: AppEntity {
-    static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Budget or category")
+    static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Budget")
     static let defaultQuery = BudgetTrackQuery()
     let id: String
     let title: String
@@ -11,26 +11,23 @@ struct BudgetTrackEntity: AppEntity {
 }
 
 struct BudgetTrackQuery: EntityQuery {
-    func defaultResult() async -> BudgetTrackEntity? {
-        BudgetTrackEntity(id: "current", title: "Current whole budget")
-    }
+    func defaultResult() async -> BudgetTrackEntity? { BudgetTrackEntity(id: "current", title: "Current budget") }
     func entities(for identifiers: [String]) async throws -> [BudgetTrackEntity] {
         let generation = SureWidgetStore.currentGeneration()
         var resolved = try await suggestedEntities().filter { identifiers.contains($0.id) }
         guard SureWidgetStore.hasCurrentConfig(generation: generation) else { return [] }
-        // Preserve existing explicit budget selections without suggesting a
-        // duplicate of the automatic current-budget choice for new widgets.
         let missing = Set(identifiers).subtracting(resolved.map(\.id))
-        guard !missing.isEmpty else {
-            return SureWidgetStore.hasCurrentConfig(generation: generation) ? resolved : []
-        }
-        guard let config = SureWidgetStore.loadConfig() else { return [] }
-        guard (config.generation ?? 0) == generation else { return [] }
+        guard !missing.isEmpty else { return resolved }
+        guard let config = SureWidgetStore.loadConfig(), (config.generation ?? 0) == generation else { return [] }
         let current = try await SpendingAPI.budgets(config).filter { $0.contains(Date()) }
         let labels = BudgetSelection.unambiguousLabels(current.map(\.name))
         resolved += current.filter { missing.contains("budget:\($0.id)") && labels.contains($0.name) }.map {
             BudgetTrackEntity(id: "budget:\($0.id)", title: $0.name)
         }
+        // Preserve old configurations as visibly unresolved, never silently
+        // replace an old area selection with the whole household budget.
+        let unresolved = missing.subtracting(resolved.map(\.id))
+        resolved += unresolved.map { BudgetTrackEntity(id: $0, title: "Reselect budget") }
         return SureWidgetStore.hasCurrentConfig(generation: generation) ? resolved : []
     }
     func suggestedEntities() async throws -> [BudgetTrackEntity] {
@@ -39,26 +36,54 @@ struct BudgetTrackQuery: EntityQuery {
         guard (config.generation ?? 0) == generation else { return [] }
         let current = try await SpendingAPI.budgets(config).filter { $0.contains(Date()) }
         let labels = BudgetSelection.unambiguousLabels(current.map(\.name))
-        var choices: [BudgetTrackEntity] = current.count > 1 ? current.filter { labels.contains($0.name) }.map {
-            BudgetTrackEntity(id: "budget:\($0.id)", title: $0.name)
-        } : []
-        if current.count == 1, let budget = current.first {
-            choices.insert(BudgetTrackEntity(id: "current", title: "Current whole budget"), at: 0)
-            let categories = try await SpendingAPI.categories(budget.id, config).filter { !$0.inheritsParent }
-            let categoryLabels = BudgetSelection.unambiguousLabels(categories.map { $0.category.name })
-            choices += categories.filter { categoryLabels.contains($0.category.name) }.map {
-                BudgetTrackEntity(id: "category:\($0.category.id)", title: $0.category.name)
-            }
-        }
+        let choices = current.count == 1 ? [BudgetTrackEntity(id: "current", title: "Current budget")] :
+            current.filter { labels.contains($0.name) }.map { BudgetTrackEntity(id: "budget:\($0.id)", title: $0.name) }
+        return SureWidgetStore.hasCurrentConfig(generation: generation) ? choices : []
+    }
+}
+
+struct BudgetAreaEntity: AppEntity {
+    static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Budget area")
+    static let defaultQuery = BudgetAreaQuery()
+    let id: String
+    let title: String
+    var displayRepresentation: DisplayRepresentation { DisplayRepresentation(title: "\(title)") }
+}
+
+struct BudgetAreaQuery: EntityQuery {
+    @IntentParameterDependency(\BudgetTrackIntent.$track) var choice
+
+    func entities(for identifiers: [String]) async throws -> [BudgetAreaEntity] {
+        let generation = SureWidgetStore.currentGeneration()
+        let resolved = try await suggestedEntities().filter { identifiers.contains($0.id) }
         guard SureWidgetStore.hasCurrentConfig(generation: generation) else { return [] }
-        return choices
+        let missing = Set(identifiers).subtracting(resolved.map(\.id))
+        // Retain missing IDs so a month/account change cannot silently produce
+        // a partial pool or turn an unavailable selected area into whole budget.
+        return resolved + missing.map { BudgetAreaEntity(id: $0, title: "Area unavailable") }
+    }
+    func suggestedEntities() async throws -> [BudgetAreaEntity] {
+        guard let config = SureWidgetStore.loadConfig() else { return [] }
+        let generation = SureWidgetStore.currentGeneration()
+        guard (config.generation ?? 0) == generation,
+              let track = BudgetTrack(id: choice?.track.id) else { return [] }
+        if case .category = track { return [] }
+        let budgets = try await SpendingAPI.budgets(config)
+        guard let budget = BudgetSelection.currentBudget(budgets, track: track, at: Date()) else { return [] }
+        let categories = try await SpendingAPI.categories(budget.id, config).filter { !$0.inheritsParent }
+        let labels = BudgetSelection.unambiguousLabels(categories.map { $0.category.name })
+        let choices = categories.filter { labels.contains($0.category.name) }.map {
+            BudgetAreaEntity(id: $0.category.id, title: $0.category.name)
+        }
+        return SureWidgetStore.hasCurrentConfig(generation: generation) ? choices : []
     }
 }
 
 struct BudgetTrackIntent: WidgetConfigurationIntent {
     static let title: LocalizedStringResource = "Track spending"
-    static let description = IntentDescription("Track the current whole budget automatically, or choose one budget or category. Category choices follow the current month only when ownership is unambiguous.")
-    @Parameter(title: "Track") var track: BudgetTrackEntity?
+    static let description = IntentDescription("Choose a budget. Leave Areas empty for the whole budget, or choose several areas. A parent includes its subcategories; selecting both counts them once. Current budget follows the month only when ownership is unambiguous.")
+    @Parameter(title: "Budget") var track: BudgetTrackEntity?
+    @Parameter(title: "Areas") var areas: [BudgetAreaEntity]?
 }
 
 private struct SpendingBudgetsResponse: Decodable {
@@ -160,7 +185,7 @@ struct BudgetWidgetProvider: AppIntentTimelineProvider {
         switch track {
         case .automatic: break
         case .budget: scope = "Selected budget"
-        case .category: scope = "Selected category"
+        case .category: return unavailable("Edit Widget: reselect Budget and Areas")
         }
         do {
             let budgets = try await SpendingAPI.budgets(config)
@@ -176,22 +201,31 @@ struct BudgetWidgetProvider: AppIntentTimelineProvider {
             // The list omits actual/remaining values. Always fetch the detail.
             let budget: SpendingBudget = try await SpendingAPI.read("budgets/\(chosen.id)", config)
             guard budget.id == chosen.id else { return unavailable("Open Sure to refresh") }
-            var category: SpendingCategory?
-            if case .category(let stableID) = track {
-                let categories = try await SpendingAPI.categories(budget.id, config)
-                guard let selected = BudgetSelection.category(categories, stableID: stableID, budgetID: budget.id),
-                      UUID(uuidString: selected.id) != nil else { return unavailable("Choose a category in Edit Widget") }
-                let detail: SpendingCategory = try await SpendingAPI.read("budget_categories/\(selected.id)", config)
-                guard detail.id == selected.id, detail.category.id == stableID, detail.budgetID == budget.id else {
-                    return unavailable("Open Sure to refresh")
+            let selectedIDs = configuration.areas?.map(\.id) ?? []
+            guard selectedIDs.allSatisfy({ UUID(uuidString: $0) != nil }), Set(selectedIDs).count <= 20 else {
+                return unavailable("Choose up to 20 areas in Edit Widget")
+            }
+            var categories: [SpendingCategory] = []
+            if !selectedIDs.isEmpty {
+                categories = try await SpendingAPI.categories(budget.id, config)
+                guard let selected = BudgetSelection.areas(categories, selectedIDs: selectedIDs, budgetID: budget.id) else {
+                    return unavailable("Reselect areas in Edit Widget")
                 }
-                category = detail
+                for selectedArea in selected {
+                    guard UUID(uuidString: selectedArea.id) != nil else { return unavailable("Open Sure to check this area") }
+                    let detail: SpendingCategory = try await SpendingAPI.read("budget_categories/\(selectedArea.id)", config)
+                    guard detail.id == selectedArea.id, detail.category.id == selectedArea.category.id,
+                          detail.category.parentID == selectedArea.category.parentID,
+                          detail.budgetID == budget.id, detail.currency == selectedArea.currency,
+                          detail.inheritsParent == selectedArea.inheritsParent else { return unavailable("Open Sure to refresh") }
+                    categories = categories.map { $0.id == detail.id ? detail : $0 }
+                }
             }
             guard SureWidgetStore.hasCurrentConfig(generation: generation) else { return unavailable("Open Sure to reconnect") }
-            scope = category?.category.name ?? budget.name
-            guard let snapshot = BudgetSnapshot(budget: budget, category: category, fetchedAt: Date()) else {
+            guard let snapshot = BudgetSnapshot(budget: budget, categories: categories, selectedIDs: selectedIDs, fetchedAt: Date()) else {
                 return unavailable("Open Sure to check budget amounts")
             }
+            scope = snapshot.displayScope
             if let problem = snapshot.problem(at: Date()) { return unavailable(problem) }
             return BudgetWidgetEntry(date: Date(), snapshot: snapshot, scope: scope, message: "", generation: generation)
         } catch {
@@ -234,20 +268,20 @@ struct BudgetRemainingView: View {
             if let snapshot = usableSnapshot {
                 if circular {
                     let amount = VStack(spacing: 0) {
-                        Text(snapshot.remainingText).font(.caption.weight(.semibold)).minimumScaleFactor(0.4).lineLimit(1)
-                        Text(snapshot.remaining < 0 ? "over" : "left").font(.system(size: 9))
+                        Text(snapshot.compactRemainingText).font(.system(size: 12, weight: .semibold, design: .rounded)).minimumScaleFactor(0.8).lineLimit(1).allowsTightening(true)
+                        Text("\(snapshot.remaining < 0 ? "over" : "left") \(snapshot.currency)").font(.system(size: 9))
                     }
                     Group {
                         if let used = snapshot.usedFraction(at: entry.date) {
-                            Gauge(value: used, in: 0...1) { Text(entry.scope) } currentValueLabel: { amount }
+                            Gauge(value: used, in: 0...1) { Text("budget") } currentValueLabel: { amount }
                                 .gaugeStyle(.accessoryCircularCapacity).tint(.accentColor)
                         } else { amount }
                     }
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("\(entry.scope): \(snapshot.remainingText) \(snapshot.remainingLabel). Bank data may lag.")
+                    .accessibilityLabel("\(snapshot.scope): \(snapshot.remainingText) \(snapshot.remainingLabel). Bank data may lag.")
                 } else {
                 VStack(alignment: .leading, spacing: compact ? 2 : 5) {
-                    Text(entry.scope).font(.caption.weight(.semibold)).foregroundStyle(.secondary).lineLimit(1)
+                    Text(entry.scope).font(.caption.weight(.semibold)).foregroundStyle(.secondary).lineLimit(1).accessibilityLabel(snapshot.scope)
                     Text(snapshot.remainingText).font(compact ? .title3.bold() : .system(size: 32, weight: .semibold, design: .rounded))
                         .minimumScaleFactor(0.65).lineLimit(1)
                     Text(snapshot.remainingLabel).font(.caption)
@@ -311,15 +345,15 @@ struct BudgetPaceView: View {
                 let value = NSDecimalNumber(decimal: ratio).doubleValue
                 if circular {
                     Gauge(value: min(2, max(0, value)), in: 0...2) {
-                        Text(entry.scope)
+                        Text("pace").font(.system(size: 10, weight: .medium))
                     } currentValueLabel: {
-                        Text(percent(value)).font(.caption.weight(.semibold)).minimumScaleFactor(0.5).lineLimit(1)
+                        Text(compactPercent(value)).font(.system(size: 14, weight: .semibold, design: .rounded)).minimumScaleFactor(0.8).lineLimit(1).allowsTightening(true)
                     }.gaugeStyle(.accessoryCircular).tint(.accentColor)
                         .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("\(entry.scope): \(percent(value)) of even pace. 100 percent is even pace. Bank data may lag.")
+                        .accessibilityLabel("\(snapshot.scope): \(percent(value)) of even pace. 100 percent is even pace. Bank data may lag.")
                 } else {
                 VStack(alignment: .leading, spacing: compact ? 2 : 4) {
-                    Text(entry.scope).font(.caption.weight(.semibold)).foregroundStyle(.secondary).lineLimit(1)
+                    Text(entry.scope).font(.caption.weight(.semibold)).foregroundStyle(.secondary).lineLimit(1).accessibilityLabel(snapshot.scope)
                     if compact {
                         Text("\(percent(value)) · \(snapshot.paceLabel(at: entry.date))").font(.headline).minimumScaleFactor(0.6).lineLimit(1)
                         Text("100% = even pace · estimate").font(.caption2)
@@ -365,6 +399,9 @@ struct BudgetPaceView: View {
         .containerBackground(.fill.tertiary, for: .widget)
     }
     private func percent(_ value: Double) -> String { value.formatted(.percent.precision(.fractionLength(0))) }
+    private func compactPercent(_ value: Double) -> String {
+        value >= 10 ? ">999%" : percent(value)
+    }
     private var usableSnapshot: BudgetSnapshot? {
         guard entry.preview || SureWidgetStore.hasCurrentConfig(generation: entry.generation),
               let snapshot = entry.snapshot, snapshot.paceProblem(at: entry.date) == nil else { return nil }

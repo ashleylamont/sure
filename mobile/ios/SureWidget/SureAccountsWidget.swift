@@ -75,7 +75,7 @@ extension AccountsEntry {
         // Assets first, then liabilities; largest balances first within each.
         return visible.sorted { a, b in
             if a.isLiability != b.isLiability { return !a.isLiability }
-            return abs(a.balanceCents ?? 0) > abs(b.balanceCents ?? 0)
+            return (a.balanceCents ?? 0).magnitude > (b.balanceCents ?? 0).magnitude
         }
     }
 
@@ -84,6 +84,28 @@ extension AccountsEntry {
         guard configuration.showNetWorth else { return nil }
         return snapshot?.netWorth
     }
+    var circularCurrencyLabel: String? {
+        guard let currency = netWorth != nil ? snapshot?.netWorthCurrency : accounts.first?.currency else { return nil }
+        let formatter = NumberFormatter(); formatter.numberStyle = .currency; formatter.currencyCode = currency
+        return (formatter.currencySymbol ?? "").count > 2 ? currency : nil
+    }
+    var circularAmount: String? {
+        if let netWorth {
+            if let major = snapshot?.netWorthAmount, let currency = snapshot?.netWorthCurrency {
+                let formatter = NumberFormatter(); formatter.numberStyle = .currency; formatter.currencyCode = currency
+                return CompactWidgetMoney.format(minorUnits: major * pow(Decimal(10), formatter.maximumFractionDigits), currency: currency)
+            }
+            // Older snapshots have only a formatted string. Never parse it using
+            // a guessed locale or shrink a long amount into unreadable text.
+            return netWorth.count <= 8 ? netWorth : "Open Sure"
+        }
+        guard let account = accounts.first else { return nil }
+        if let minor = account.balanceCents {
+            return CompactWidgetMoney.format(minorUnits: Decimal(minor), currency: account.currency)
+        }
+        return account.balance.count <= 8 ? account.balance : "Open Sure"
+    }
+
 }
 
 // MARK: - Views
@@ -103,9 +125,12 @@ struct AccountsWidgetView: View {
             } else {
                 switch family {
                 case .accessoryCircular:
-                    CircularBalanceView(title: entry.netWorth != nil ? "Net worth" : (entry.accounts.first?.name ?? "Balance"),
-                        amount: entry.netWorth ?? entry.accounts.first?.balance,
-                        statusIcon: entry.needsSetup ? "key" : (!entry.isLive ? "wifi.slash" : nil))
+                    CircularBalanceView(title: entry.netWorth != nil ? "Net worth" : "Balance",
+                        amount: entry.circularAmount,
+                        statusIcon: entry.needsSetup ? "key" : (!entry.isLive ? "wifi.slash" : nil),
+                        accessibilityTitle: entry.netWorth != nil ? "Net worth" : entry.accounts.first?.name,
+                        accessibilityAmount: entry.netWorth ?? entry.accounts.first?.balance,
+                        currencyLabel: entry.circularCurrencyLabel)
                 case .accessoryRectangular: LockScreenView(entry: entry)
                 case .systemSmall: ListLayout(entry: entry, maxRows: 3, compact: true)
                 case .systemMedium: ListLayout(entry: entry, maxRows: 4, compact: false)
@@ -123,6 +148,9 @@ struct CircularBalanceView: View {
     let title: String
     let amount: String?
     let statusIcon: String?
+    var accessibilityTitle: String? = nil
+    var accessibilityAmount: String? = nil
+    var currencyLabel: String? = nil
 
     var body: some View {
         VStack(spacing: 2) {
@@ -130,13 +158,13 @@ struct CircularBalanceView: View {
                 .font(.caption)
             Text(amount ?? "Open Sure")
                 .font(.caption.weight(.semibold)).monospacedDigit()
-                .lineLimit(1).minimumScaleFactor(0.5)
-            Text(title).font(.system(size: 9)).lineLimit(1)
+                .lineLimit(1).minimumScaleFactor(0.85)
+            Text(currencyLabel ?? title).font(.system(size: 9)).lineLimit(1)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .privacySensitive()
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(amount.map { "\(title), \($0)" } ?? "Open Sure to connect")
+        .accessibilityLabel((accessibilityAmount ?? amount).map { "\(accessibilityTitle ?? title), \($0)" } ?? "Open Sure to connect")
         .accessibilityValue(statusIcon == "wifi.slash" ? "Last refresh failed" : "")
     }
 }
