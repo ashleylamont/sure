@@ -36,6 +36,7 @@ void main() {
     required bool hidden,
     Future<String?> Function()? loader,
     Locale locale = const Locale('en'),
+    ValueChanged<String>? onOpenSpendingPace,
   }) {
     return ChangeNotifierProvider<PrivacyProvider>(
       create: (_) => PrivacyProvider(initialHidden: hidden),
@@ -51,6 +52,7 @@ void main() {
         ],
         home: BudgetsScreen(
           provider: provider,
+          onOpenSpendingPace: onOpenSpendingPace,
           accessTokenLoader: loader ?? () async => 'token',
         ),
       ),
@@ -63,12 +65,17 @@ void main() {
     bool hidden = false,
     Future<String?> Function()? loader,
     Locale locale = const Locale('en'),
+    ValueChanged<String>? onOpenSpendingPace,
   }) async {
     tester.view.physicalSize = const Size(1080, 2400);
     tester.view.devicePixelRatio = 2.5;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
-      harness(provider, hidden: hidden, loader: loader, locale: locale),
+      harness(provider,
+          hidden: hidden,
+          loader: loader,
+          locale: locale,
+          onOpenSpendingPace: onOpenSpendingPace),
     );
     await tester.pumpAndSettle();
   }
@@ -245,5 +252,49 @@ void main() {
       find.text('Your session has expired. Please sign in again.'),
       findsOneWidget,
     );
+  });
+  testWidgets('pace opens only the explicitly selected budget', (tester) async {
+    final opened = <String>[];
+    await pumpScreen(
+        tester,
+        buildProvider(budgets: [
+          budgetJson(id: 'budget_oct'),
+          budgetJson(id: 'budget_oct_personal'),
+        ]),
+        onOpenSpendingPace: opened.add);
+    expect(opened, isEmpty);
+    await tester.tap(find.text('Budget 2'));
+    await tester.pumpAndSettle();
+    expect(opened, isEmpty);
+    await tester.tap(find.byKey(const ValueKey('open-spending-pace')));
+    expect(opened, ['budget_oct_personal']);
+  });
+  testWidgets('past budget has no pace action', (tester) async {
+    final opened = <String>[];
+    await pumpScreen(
+        tester,
+        buildProvider(budgets: [
+          budgetJson(),
+          budgetJson(
+              id: 'past',
+              startDate: '2026-09-01',
+              endDate: '2026-09-30',
+              current: false),
+        ]),
+        onOpenSpendingPace: opened.add);
+    await tester.tap(find.widgetWithIcon(IconButton, Icons.chevron_left));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('open-spending-pace')), findsNothing);
+    expect(opened, isEmpty);
+  });
+  testWidgets('uninitialized budget has no pace action', (tester) async {
+    await pumpScreen(
+        tester, buildProvider(budgets: [budgetJson(initialized: false)]),
+        onOpenSpendingPace: (_) => fail('Must not open'));
+    expect(find.byKey(const ValueKey('open-spending-pace')), findsNothing);
+  });
+  testWidgets('without app-layer callback hides pace action', (tester) async {
+    await pumpScreen(tester, buildProvider());
+    expect(find.byKey(const ValueKey('open-spending-pace')), findsNothing);
   });
 }

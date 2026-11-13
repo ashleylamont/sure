@@ -373,6 +373,8 @@ struct BudgetBreakdown: Sendable {
                 return ["name": item.scope, "spent": item.formatted(item.spent),
                     "remaining": item.formatted(item.remaining), "budget": item.formatted(item.envelope),
                     "remainingLabel": item.remainingText + (item.remaining < 0 ? " over budget" : " left"),
+                    "projected": item.projection(at: now).map { item.formatted($0) } as Any? ?? NSNull(),
+                    "early": item.budget.days(at: now)?.early ?? false,
                     "spentFraction": fraction.flatMap { $0.isFinite ? $0 : nil } as Any? ?? NSNull()]
             },
             "categoryBreakdownStatus": categoryBreakdownStatus, "categoryBreakdownNote": categoryBreakdownNote,

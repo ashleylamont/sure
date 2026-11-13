@@ -12,7 +12,9 @@ import 'settings_screen.dart';
 import '../l10n/app_localizations.dart';
 
 class MainNavigationScreen extends StatefulWidget {
-  const MainNavigationScreen({super.key});
+  const MainNavigationScreen({super.key, this.onOpenSpendingPace});
+
+  final ValueChanged<String>? onOpenSpendingPace;
 
   @override
   State<MainNavigationScreen> createState() => _MainNavigationScreenState();
@@ -36,7 +38,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     screens.add(const ChatListScreen());
 
     if (!introLayout) {
-      screens.add(const MoreScreen());
+      screens.add(MoreScreen(onOpenSpendingPace: widget.onOpenSpendingPace));
     }
 
     screens.add(const SettingsScreen());
@@ -69,12 +71,14 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     }
   }
 
-  Future<void> _handleSelectSettings(AuthProvider authProvider, bool introLayout) async {
+  Future<void> _handleSelectSettings(
+      AuthProvider authProvider, bool introLayout) async {
     final settingsIndex = introLayout ? 2 : 3;
     await _handleDestinationSelected(settingsIndex, authProvider, introLayout);
   }
 
-  List<NavigationDestination> _buildDestinations(bool introLayout, AppLocalizations l) {
+  List<NavigationDestination> _buildDestinations(
+      bool introLayout, AppLocalizations l) {
     final destinations = <NavigationDestination>[];
 
     if (!introLayout) {
@@ -118,7 +122,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     return destinations;
   }
 
-  PreferredSizeWidget _buildTopBar(AuthProvider authProvider, bool introLayout) {
+  PreferredSizeWidget _buildTopBar(
+      AuthProvider authProvider, bool introLayout) {
     return AppBar(
       automaticallyImplyLeading: false,
       toolbarHeight: 60,
@@ -244,7 +249,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         const chatIndex = 1;
         final screens = _buildScreens(
           introLayout,
-          () => _handleDestinationSelected(chatIndex, authProvider, introLayout),
+          () =>
+              _handleDestinationSelected(chatIndex, authProvider, introLayout),
         );
         final destinations = _buildDestinations(introLayout, l);
         final bottomNavIndex = _resolveBottomSelectedIndex(destinations);

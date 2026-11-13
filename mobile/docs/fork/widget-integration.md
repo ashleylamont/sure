@@ -311,3 +311,11 @@ category enrichment is enabled only for the app, never widget refresh, and is
 bounded to 20 roots and 15 seconds. Zero-only
 complete lists are distinct from unavailable data. Privacy masks category values,
 pace indicators and financial accessibility content as well as the summary.
+
+Spending Pace is also discoverable via More → Spending pace → choose a current
+budget → Spending pace for this budget. The same action appears in Budgets.
+This explicit choice avoids silently guessing among visible budgets. Each category includes
+its own conditional period-end projection, calculated by the shared native model
+with the same inclusive calendar-day convention. Early estimates are labelled;
+refund/zero-denominator projections are unavailable rather than misleading. All
+category projections follow the same privacy masking as current amounts.

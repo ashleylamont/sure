@@ -15,6 +15,7 @@ import 'screens/backend_config_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/budget_pace_screen.dart';
 import 'services/budget_pace_link.dart';
+import 'services/widget_bridge_service.dart';
 import 'screens/biometric_lock_screen.dart';
 import 'screens/main_navigation_screen.dart';
 import 'screens/sso_onboarding_screen.dart';
@@ -342,7 +343,15 @@ class _AppWrapperState extends State<AppWrapper> with WidgetsBindingObserver {
               UpgradeAlert(
                 upgrader: _upgrader,
                 showIgnore: false,
-                child: const MainNavigationScreen(),
+                child: MainNavigationScreen(
+                  onOpenSpendingPace: !WidgetBridgeService.instance.isSupported
+                      ? null
+                      : (budgetId) {
+                          if (!mounted) return;
+                          setState(() => _paceLink =
+                              BudgetPaceLink('budget:$budgetId', const []));
+                        },
+                ),
               ),
               if (_paceLink != null &&
                   !_isLocked &&

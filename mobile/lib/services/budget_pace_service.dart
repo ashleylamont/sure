@@ -148,10 +148,14 @@ class BudgetPaceCategory {
       required this.budget,
       required this.remaining,
       this.spentFraction,
-      this.remainingLabel});
+      this.remainingLabel,
+      this.projected,
+      this.early = false});
   final String name, spent, budget, remaining;
   final double? spentFraction;
   final String? remainingLabel;
+  final String? projected;
+  final bool early;
 
   factory BudgetPaceCategory.fromMap(Map<Object?, Object?> data) {
     String text(String key) {
@@ -166,6 +170,12 @@ class BudgetPaceCategory {
     if (label != null && (label is! String || label.isEmpty)) {
       throw const FormatException('Invalid category label');
     }
+    final projected = data['projected'];
+    final early = data['early'] ?? false;
+    if ((projected != null && (projected is! String || projected.isEmpty)) ||
+        early is! bool) {
+      throw const FormatException('Invalid category projection');
+    }
     final fraction = data['spentFraction'];
     if (fraction != null &&
         (fraction is! num || !fraction.isFinite || fraction < 0)) {
@@ -177,6 +187,8 @@ class BudgetPaceCategory {
         budget: text('budget'),
         remaining: text('remaining'),
         remainingLabel: label as String?,
+        projected: projected as String?,
+        early: early,
         spentFraction: (fraction as num?)?.toDouble());
   }
 }

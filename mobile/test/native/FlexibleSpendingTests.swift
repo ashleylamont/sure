@@ -166,6 +166,24 @@ struct FlexibleSpendingTests {
             complete: true, wholeBudget: true, areaNames: [], totalAreas: 1).payload(at: now)!["categoryBreakdown"] as! [[String: Any]]
         precondition(overRows[0]["remainingLabel"] as? String == normal.formatted(12000) + " over budget")
         precondition(rowsPayload[0]["remainingLabel"] as? String == normal.formatted(40000) + " left")
+        precondition(rowsPayload[0]["projected"] as? String == normal.formatted(120000))
+        precondition(rowsPayload[0]["early"] as? Bool == false)
+        precondition(refundRows[0]["projected"] is NSNull)
+        let zeroEnvelopeRows = BudgetCategoryBreakdown.make(snapshot: normal, details: [area("zeroEnvelope", spent: 100, left: -100)],
+            complete: true, wholeBudget: true, areaNames: [], totalAreas: 1).payload(at: now)!["categoryBreakdown"] as! [[String: Any]]
+        precondition(zeroEnvelopeRows[0]["projected"] is NSNull)
+        let earlySnapshot = snapshot(budget(start: "2026-10-12"))!
+        let earlyRows = BudgetCategoryBreakdown.make(snapshot: earlySnapshot, details: [area("early", spent: 60000, left: 40000)],
+            complete: true, wholeBudget: true, areaNames: [], totalAreas: 1).payload(at: now)!["categoryBreakdown"] as! [[String: Any]]
+        precondition(earlyRows[0]["early"] as? Bool == true)
+        precondition(earlyRows[0]["projected"] as? String == earlySnapshot.formatted(285000))
+        for currency in ["JPY", "KWD"] {
+            let currencySnapshot = snapshot(budget(currency: currency))!
+            let row = BudgetCategoryBreakdown.make(snapshot: currencySnapshot,
+                details: [area("currency", currency: currency, spent: 60000, left: 40000)],
+                complete: true, wholeBudget: true, areaNames: [], totalAreas: 1).payload(at: now)!["categoryBreakdown"] as! [[String: Any]]
+            precondition(row[0]["projected"] as? String == currencySnapshot.formatted(120000))
+        }
         precondition(BudgetCategoryBreakdown.wholeBudgetLimit == 20)
         print("Budget Remaining/Pace math and selection regression checks passed")
     }

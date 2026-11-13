@@ -307,6 +307,19 @@ class _BudgetPaceScreenState extends State<BudgetPaceScreen> {
                   Text(hidden
                       ? '••••'
                       : row.remainingLabel ?? '${row.remaining} remaining'),
+                  const SizedBox(height: SureSpacing.sm),
+                  Text(
+                      hidden
+                          ? '••••'
+                          : row.projected == null
+                              ? 'Projection not available'
+                              : 'At this pace: ${row.projected} by period end',
+                      style: Theme.of(context).textTheme.bodySmall),
+                  if (!hidden &&
+                      row.projected != null &&
+                      (row.early || data.early))
+                    Text('Early estimate: little of the period has passed.',
+                        style: Theme.of(context).textTheme.bodySmall),
                 ]),
           ),
         if (!hidden && data.categoryNote.isNotEmpty)

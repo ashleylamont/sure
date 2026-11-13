@@ -23,7 +23,14 @@ import 'budget_category_transactions_screen.dart';
 /// subcategories nested under their parent. Tapping a category opens its
 /// transactions for that budget period. Read-only: budgets are edited on web.
 class BudgetsScreen extends StatefulWidget {
-  const BudgetsScreen({super.key, this.provider, this.accessTokenLoader});
+  const BudgetsScreen(
+      {super.key,
+      this.provider,
+      this.accessTokenLoader,
+      this.onOpenSpendingPace});
+
+  /// Delegates to the authenticated app layer after an explicit budget choice.
+  final ValueChanged<String>? onOpenSpendingPace;
 
   /// Injected for tests; otherwise the screen owns its provider.
   final BudgetsProvider? provider;
@@ -333,6 +340,22 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
     if (provider.isLoading) {
       widgets.add(const LinearProgressIndicator(minHeight: 2));
       widgets.add(const SizedBox(height: SureSpacing.md));
+    }
+
+    if (widget.onOpenSpendingPace != null &&
+        budget.current &&
+        budget.initialized) {
+      widgets.add(Padding(
+        padding: const EdgeInsets.only(bottom: SureSpacing.lg),
+        child: OutlinedButton.icon(
+          key: const ValueKey('open-spending-pace'),
+          icon: const Icon(Icons.speed),
+          label: const Text('Spending pace for this budget'),
+          onPressed: provider.isLoading || provider.error != null
+              ? null
+              : () => widget.onOpenSpendingPace!(budget.id),
+        ),
+      ));
     }
 
     widgets.add(BudgetSummaryCard(budget: budget, hideAmounts: hideAmounts));

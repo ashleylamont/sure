@@ -13,7 +13,8 @@ BudgetPaceBreakdown fixture(
         {String title = 'November budget',
         bool early = false,
         bool empty = false,
-        bool labeled = false}) =>
+        bool labeled = false,
+        bool projection = true}) =>
     BudgetPaceBreakdown(
       title: title,
       areaNames: const ['Fun', 'Everyday'],
@@ -41,6 +42,8 @@ BudgetPaceBreakdown fixture(
                   budget: r'A$100.00',
                   remaining: r'−A$50.00',
                   spentFraction: 1.5,
+                  projected: projection ? r'A$333.33' : null,
+                  early: early,
                   remainingLabel: labeled ? r'A$50.00 over budget' : null)
             ],
       categoryStatus: empty ? 'complete' : 'partial',
@@ -175,6 +178,30 @@ void main() {
     await tester.scrollUntilVisible(find.text('By category'), 250);
     expect(find.text(r'A$50.00 over budget'), findsOneWidget);
     expect(find.text(r'−A$50.00 remaining'), findsNothing);
+  });
+
+  testWidgets('category projection and early caveat are private and optional',
+      (tester) async {
+    Future<void> show({bool hidden = false, bool projection = true}) async {
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpWidget(harness(
+          () async => fixture(early: true, projection: projection),
+          hidden: hidden));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.text('By category'), 250);
+    }
+
+    await show();
+    expect(find.text(r'At this pace: A$333.33 by period end'), findsOneWidget);
+    expect(find.text('Early estimate: little of the period has passed.'),
+        findsOneWidget);
+    await show(hidden: true);
+    expect(find.textContaining(r'A$333.33'), findsNothing);
+    expect(find.textContaining('Early estimate:'), findsNothing);
+    expect(find.text('Projection not available'), findsNothing);
+    await show(projection: false);
+    expect(find.text('Projection not available'), findsOneWidget);
+    expect(find.textContaining(r'A$333.33'), findsNothing);
   });
 
   testWidgets('early period has no invented gauge', (tester) async {

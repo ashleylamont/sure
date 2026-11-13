@@ -115,6 +115,27 @@ void main() {
         r'A$50 left');
     expect(() => parse({...row, 'remainingLabel': 50}), throwsFormatException);
   });
+  test('category projection preserves native formatting and unavailable state',
+      () {
+    final row = {
+      'name': 'Fun',
+      'spent': '150',
+      'budget': '100',
+      'remaining': '-50'
+    };
+    expect(BudgetPaceCategory.fromMap(row).projected, isNull);
+    final value = BudgetPaceCategory.fromMap(
+        {...row, 'projected': 'AUD 333.33', 'early': true});
+    expect(value.projected, 'AUD 333.33');
+    expect(value.early, isTrue);
+    for (final bad in [
+      {...row, 'projected': 333},
+      {...row, 'projected': ''},
+      {...row, 'early': 'yes'}
+    ]) {
+      expect(() => BudgetPaceCategory.fromMap(bad), throwsFormatException);
+    }
+  });
   test('accepts unavailable projection without inventing zero', () {
     final value = BudgetPaceBreakdown.fromMap({
       ...fixture(),
