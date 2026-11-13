@@ -280,3 +280,23 @@ Both iOS CI jobs disable Flutter Swift Package Manager via the supported
 `FLUTTER_SWIFT_PACKAGE_MANAGER=false` environment override, matching local builds.
 This preserves CocoaPods and avoids automatic partial migration/mixed Sentry
 dependency resolution. No global developer Flutter configuration is changed.
+
+## Tap-through spending pace
+
+Budget Pace widgets open a read-only in-app breakdown for their selected budget
+and areas. The deep link contains only validated selection IDs. Runner and the
+widget compile the same loader and calculation model: fetched totals, coalesced
+areas, inclusive calendar days, even-pace expectation and linear projection.
+The screen refreshes instead of trusting financial amounts from a URL, masks
+financial values in privacy mode, and remains behind sign-in and biometric lock.
+It explains bank-feed lag, lumpy spending and rollover-adjusted selected-area
+budgets. A linear projection is not a cash-availability forecast.
+
+Verification uses synthetic native arithmetic tests, Flutter screen/link/service
+regressions, simulator compilation and component screenshots. No phone testing.
+
+Cold-start routing waits for the biometric preference before presenting financial
+content. Account identity changes invalidate the widget connection before accepting
+the replacement login; failed cleanup blocks pace loads until reconnection. Token
+refresh does not revoke the widget connection. Runtime biometric interaction is
+not claimed from source-only gate regression checks.

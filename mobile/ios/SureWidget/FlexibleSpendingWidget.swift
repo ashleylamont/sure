@@ -19,7 +19,7 @@ struct BudgetTrackQuery: EntityQuery {
         let missing = Set(identifiers).subtracting(resolved.map(\.id))
         guard !missing.isEmpty else { return resolved }
         guard let config = SureWidgetStore.loadConfig(), (config.generation ?? 0) == generation else { return [] }
-        let current = try await SpendingAPI.budgets(config).filter { $0.contains(Date()) }
+        let current = try await SpendingAPI.budgets(config.budgetAPIConfig).filter { $0.contains(Date()) }
         let labels = BudgetSelection.unambiguousLabels(current.map(\.name))
         resolved += current.filter { missing.contains("budget:\($0.id)") && labels.contains($0.name) }.map {
             BudgetTrackEntity(id: "budget:\($0.id)", title: $0.name)
@@ -34,7 +34,7 @@ struct BudgetTrackQuery: EntityQuery {
         guard let config = SureWidgetStore.loadConfig() else { return [] }
         let generation = SureWidgetStore.currentGeneration()
         guard (config.generation ?? 0) == generation else { return [] }
-        let current = try await SpendingAPI.budgets(config).filter { $0.contains(Date()) }
+        let current = try await SpendingAPI.budgets(config.budgetAPIConfig).filter { $0.contains(Date()) }
         let labels = BudgetSelection.unambiguousLabels(current.map(\.name))
         let choices = current.count == 1 ? [BudgetTrackEntity(id: "current", title: "Current budget")] :
             current.filter { labels.contains($0.name) }.map { BudgetTrackEntity(id: "budget:\($0.id)", title: $0.name) }
@@ -68,9 +68,9 @@ struct BudgetAreaQuery: EntityQuery {
         guard (config.generation ?? 0) == generation,
               let track = BudgetTrack(id: choice?.track.id) else { return [] }
         if case .category = track { return [] }
-        let budgets = try await SpendingAPI.budgets(config)
+        let budgets = try await SpendingAPI.budgets(config.budgetAPIConfig)
         guard let budget = BudgetSelection.currentBudget(budgets, track: track, at: Date()) else { return [] }
-        let categories = try await SpendingAPI.categories(budget.id, config).filter { !$0.inheritsParent }
+        let categories = try await SpendingAPI.categories(budget.id, config.budgetAPIConfig).filter { !$0.inheritsParent }
         let labels = BudgetSelection.unambiguousLabels(categories.map { $0.category.name })
         let choices = categories.filter { labels.contains($0.category.name) }.map {
             BudgetAreaEntity(id: $0.category.id, title: $0.category.name)
@@ -86,52 +86,8 @@ struct BudgetTrackIntent: WidgetConfigurationIntent {
     @Parameter(title: "Areas") var areas: [BudgetAreaEntity]?
 }
 
-private struct SpendingBudgetsResponse: Decodable {
-    let budgets: [SpendingBudget]
-    let pagination: SpendingPagination?
-}
-private struct SpendingPagination: Decodable {
-    let totalPages: Int
-    enum CodingKeys: String, CodingKey { case totalPages = "total_pages" }
-}
-private struct SpendingCategoriesResponse: Decodable {
-    let categories: [SpendingCategory]
-    let pagination: SpendingPagination?
-    enum CodingKeys: String, CodingKey { case categories = "budget_categories", pagination }
-}
-
-private final class SpendingRedirectPolicy: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
-    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
-        completionHandler(nil)
-    }
-}
-
-private enum SpendingAPI {
-    enum Failure: Error { case unavailable, incomplete }
-    static func read<T: Decodable>(_ path: String, _ config: SureWidgetConfig) async throws -> T {
-        guard let key = config.apiKey, !key.isEmpty,
-              let url = URL(string: config.baseUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/api/v1/" + path) else { throw Failure.unavailable }
-        var request = URLRequest(url: url, timeoutInterval: 15)
-        for (name, value) in config.headers { request.setValue(value, forHTTPHeaderField: name) }
-        request.setValue(key, forHTTPHeaderField: "X-Api-Key")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        let session = URLSession(configuration: .ephemeral, delegate: SpendingRedirectPolicy(), delegateQueue: nil)
-        defer { session.invalidateAndCancel() }
-        let (data, response) = try await session.data(for: request)
-        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw Failure.unavailable }
-        return try JSONDecoder().decode(T.self, from: data)
-    }
-    static func budgets(_ config: SureWidgetConfig) async throws -> [SpendingBudget] {
-        let response: SpendingBudgetsResponse = try await read("budgets?per_page=100", config)
-        guard (response.pagination?.totalPages ?? 1) <= 1 else { throw Failure.incomplete }
-        return response.budgets
-    }
-    static func categories(_ budgetID: String, _ config: SureWidgetConfig) async throws -> [SpendingCategory] {
-        guard UUID(uuidString: budgetID) != nil else { throw Failure.unavailable }
-        let response: SpendingCategoriesResponse = try await read("budget_categories?budget_id=\(budgetID)&per_page=100", config)
-        guard (response.pagination?.totalPages ?? 1) <= 1 else { throw Failure.incomplete }
-        return response.categories
-    }
+private extension SureWidgetConfig {
+    var budgetAPIConfig: BudgetAPIConfig { BudgetAPIConfig(baseUrl: baseUrl, headers: headers, apiKey: apiKey) }
 }
 
 struct BudgetWidgetEntry: TimelineEntry {
@@ -141,6 +97,7 @@ struct BudgetWidgetEntry: TimelineEntry {
     let message: String
     let generation: Int
     var preview = false
+    var paceURL: URL? = nil
 }
 
 struct BudgetWidgetProvider: AppIntentTimelineProvider {
@@ -188,7 +145,7 @@ struct BudgetWidgetProvider: AppIntentTimelineProvider {
         case .category: return unavailable("Edit Widget: reselect Budget and Areas")
         }
         do {
-            let budgets = try await SpendingAPI.budgets(config)
+            let budgets = try await SpendingAPI.budgets(config.budgetAPIConfig)
             guard let chosen = BudgetSelection.currentBudget(budgets, track: track, at: Date()) else {
                 let current = budgets.filter { $0.contains(Date()) }
                 if current.isEmpty { return unavailable("Set up a current budget in Sure") }
@@ -198,36 +155,15 @@ struct BudgetWidgetProvider: AppIntentTimelineProvider {
                 return unavailable("Choose a current budget in Edit Widget")
             }
             guard UUID(uuidString: chosen.id) != nil else { return unavailable("Open Sure to check this budget") }
-            // The list omits actual/remaining values. Always fetch the detail.
-            let budget: SpendingBudget = try await SpendingAPI.read("budgets/\(chosen.id)", config)
-            guard budget.id == chosen.id else { return unavailable("Open Sure to refresh") }
             let selectedIDs = configuration.areas?.map(\.id) ?? []
-            guard selectedIDs.allSatisfy({ UUID(uuidString: $0) != nil }), Set(selectedIDs).count <= 20 else {
-                return unavailable("Choose up to 20 areas in Edit Widget")
-            }
-            var categories: [SpendingCategory] = []
-            if !selectedIDs.isEmpty {
-                categories = try await SpendingAPI.categories(budget.id, config)
-                guard let selected = BudgetSelection.areas(categories, selectedIDs: selectedIDs, budgetID: budget.id) else {
-                    return unavailable("Reselect areas in Edit Widget")
-                }
-                for selectedArea in selected {
-                    guard UUID(uuidString: selectedArea.id) != nil else { return unavailable("Open Sure to check this area") }
-                    let detail: SpendingCategory = try await SpendingAPI.read("budget_categories/\(selectedArea.id)", config)
-                    guard detail.id == selectedArea.id, detail.category.id == selectedArea.category.id,
-                          detail.category.parentID == selectedArea.category.parentID,
-                          detail.budgetID == budget.id, detail.currency == selectedArea.currency,
-                          detail.inheritsParent == selectedArea.inheritsParent else { return unavailable("Open Sure to refresh") }
-                    categories = categories.map { $0.id == detail.id ? detail : $0 }
-                }
-            }
+            let loaded = try await BudgetBreakdownLoader.load(budgetID: chosen.id, areaIDs: selectedIDs,
+                config: config.budgetAPIConfig)
             guard SureWidgetStore.hasCurrentConfig(generation: generation) else { return unavailable("Open Sure to reconnect") }
-            guard let snapshot = BudgetSnapshot(budget: budget, categories: categories, selectedIDs: selectedIDs, fetchedAt: Date()) else {
-                return unavailable("Open Sure to check budget amounts")
-            }
+            let snapshot = loaded.snapshot
             scope = snapshot.displayScope
             if let problem = snapshot.problem(at: Date()) { return unavailable(problem) }
-            return BudgetWidgetEntry(date: Date(), snapshot: snapshot, scope: scope, message: "", generation: generation)
+            return BudgetWidgetEntry(date: Date(), snapshot: snapshot, scope: scope, message: "", generation: generation,
+                paceURL: BudgetPaceLink.make(budgetSelection: configuration.track?.id ?? "current", areaIDs: selectedIDs))
         } catch {
             return unavailable("Open Sure to check the connection")
         }
@@ -395,6 +331,7 @@ struct BudgetPaceView: View {
         // Widgets have fixed geometry. Keep typography legible within it;
         // full amounts and meaning remain available to VoiceOver.
         .dynamicTypeSize(.xSmall ... .large)
+        .widgetURL(SureWidgetStore.hasCurrentConfig(generation: entry.generation) ? entry.paceURL : nil)
         .privacySensitive()
         .containerBackground(.fill.tertiary, for: .widget)
     }

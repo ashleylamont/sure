@@ -130,6 +130,21 @@ struct FlexibleSpendingTests {
         precondition(!over.compactRemainingText.contains("−"), "Over label already carries negative meaning")
         precondition(CompactWidgetMoney.format(minorUnits: 1234000, currency: "KWD").contains("1.2k"))
         precondition(CompactWidgetMoney.format(minorUnits: 1234, currency: "JPY").contains("1.2k"))
+        let budgetID = "B8C564E1-E4AC-49AE-806D-08933A126152"
+        let areaID = "C0F64214-CC7F-42FB-B8DD-7855CCAA3108"
+        let link = BudgetPaceLink.make(budgetSelection: "budget:" + budgetID, areaIDs: [areaID, areaID])!
+        let parts = URLComponents(url: link, resolvingAgainstBaseURL: false)!
+        precondition(parts.scheme == "sureapp" && parts.host == "budget-pace")
+        precondition(parts.queryItems?.filter { $0.name == "area" }.count == 1)
+        precondition(BudgetPaceLink.make(budgetSelection: "../accounts", areaIDs: []) == nil)
+        precondition(BudgetPaceLink.make(budgetSelection: "current", areaIDs: ["../credentials"]) == nil)
+        let breakdown = BudgetBreakdown(snapshot: normal, areaNames: ["Example"])
+        let payload = breakdown.payload(at: now)!
+        precondition(payload["paceRatio"] as? Double == 1.2)
+        precondition(payload["expected"] as? String == normal.formatted(normal.envelope / 2))
+        precondition(payload["deviation"] as? String == normal.formatted(normal.spent - normal.envelope / 2))
+        precondition(payload["areaNames"] as? [String] == ["Example"])
+        precondition(breakdown.payload(at: now.addingTimeInterval(7 * 3600)) == nil)
         print("Budget Remaining/Pace math and selection regression checks passed")
     }
 }

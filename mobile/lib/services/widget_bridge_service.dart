@@ -48,7 +48,9 @@ class WidgetBridgeService {
   /// The widget extension needs iOS 17 (WidgetKit app intents), while the app
   /// itself still runs on iOS 15.
   bool get isSupported =>
-      !kIsWeb && Platform.isIOS && iosMajorVersion(Platform.operatingSystemVersion) >= 17;
+      !kIsWeb &&
+      Platform.isIOS &&
+      iosMajorVersion(Platform.operatingSystemVersion) >= 17;
 
   /// Reads the major iOS version from [Platform.operatingSystemVersion], e.g.
   /// "Version 17.4.1 (Build 21E236)" or "17.4.1". Returns 0 if it can't tell.
@@ -90,8 +92,19 @@ class WidgetBridgeService {
       } else {
         await _storage.write(key: _widgetApiKeyKey, value: trimmed);
       }
-      await _setKeyRevoked(false);
-      return _update(epoch, () async => {'config': await _config()});
+      final wasRevoked = await _isKeyRevoked();
+      try {
+        await _setKeyRevoked(false);
+        final updated = await _update(epoch, () async => {'config': await _config()});
+        if (!updated && wasRevoked) await _setKeyRevoked(true);
+        return updated;
+      } catch (_) {
+        if (wasRevoked) {
+          _keyRevoked = true;
+          try { await _setKeyRevoked(true); } catch (_) {}
+        }
+        rethrow;
+      }
     });
   }
 
@@ -124,16 +137,14 @@ class WidgetBridgeService {
   /// Checks that [apiKey] can read accounts from the configured server.
   Future<String?> testApiKey(String apiKey) async {
     try {
-      final response = await http
-          .get(
-            Uri.parse('${ApiConfig.baseUrl}/api/v1/accounts?per_page=1'),
-            headers: {
-              ...ApiConfig.customProxyHeaderMap,
-              'X-Api-Key': apiKey.trim(),
-              'Accept': 'application/json',
-            },
-          )
-          .timeout(const Duration(seconds: 15));
+      final response = await http.get(
+        Uri.parse('${ApiConfig.baseUrl}/api/v1/accounts?per_page=1'),
+        headers: {
+          ...ApiConfig.customProxyHeaderMap,
+          'X-Api-Key': apiKey.trim(),
+          'Accept': 'application/json',
+        },
+      ).timeout(const Duration(seconds: 15));
       if (response.statusCode == 200) return null;
       if (response.statusCode == 401 || response.statusCode == 403) {
         return 'The server rejected this API key.';
@@ -161,28 +172,33 @@ class WidgetBridgeService {
     if (!isSupported) return;
     final epoch = sinceEpoch ?? _epoch;
     final updatedAt = fromServer ? DateTime.now() : _latestUpdate(accounts);
-    await _send(epoch, () async => {
-      'config': await _config(),
-      'replaceExisting': fromServer,
-      'snapshot': {
-        'updatedAt': _iso8601Seconds(updatedAt),
-        if (netWorth != null) 'netWorth': netWorth,
-        'accounts': [
-          for (final a in accounts)
-            if (a.status == null || a.status == 'active')
-              {
-                'id': a.id,
-                'name': a.name,
-                'balance': a.balance,
-                if (a.balanceCents != null) 'balanceCents': a.balanceCents,
-                'currency': a.currency,
-                if (a.classification != null) 'classification': a.classification,
-                'accountType': a.accountType,
-                if (a.institutionName != null) 'institutionName': a.institutionName,
+    await _send(
+        epoch,
+        () async => {
+              'config': await _config(),
+              'replaceExisting': fromServer,
+              'snapshot': {
+                'updatedAt': _iso8601Seconds(updatedAt),
+                if (netWorth != null) 'netWorth': netWorth,
+                'accounts': [
+                  for (final a in accounts)
+                    if (a.status == null || a.status == 'active')
+                      {
+                        'id': a.id,
+                        'name': a.name,
+                        'balance': a.balance,
+                        if (a.balanceCents != null)
+                          'balanceCents': a.balanceCents,
+                        'currency': a.currency,
+                        if (a.classification != null)
+                          'classification': a.classification,
+                        'accountType': a.accountType,
+                        if (a.institutionName != null)
+                          'institutionName': a.institutionName,
+                      },
+                ],
               },
-        ],
-      },
-    });
+            });
   }
 
   /// Logout cleanup: removes the widget's saved key, so it can't be reused by
@@ -193,32 +209,55 @@ class WidgetBridgeService {
   /// [getWidgetApiKey] ignores it until a new key is saved. The native side
   /// invalidates the widget files before deleting them and reports failure,
   /// in which case it is tried once more.
-  Future<void> clear() {
-    if (!isSupported) return Future.value();
+  Future<bool> clear() {
+    if (!isSupported) return Future.value(true);
     _epoch++;
     return _enqueue(() async {
+      // Persist fail-closed state before deleting either credential copy.
+      _keyRevoked = true;
+      var storageCleared = false;
+      var revocationSaved = false;
+      try {
+        await _setKeyRevoked(true);
+        revocationSaved = true;
+      } catch (e) {
+        LogService.instance
+            .warning('WidgetBridge', 'key revoke failed: ${e.runtimeType}');
+      }
       try {
         await _storage.delete(key: _widgetApiKeyKey);
-        if (_keyRevoked) await _setKeyRevoked(false);
+        storageCleared = true;
       } catch (e) {
-        LogService.instance.warning('WidgetBridge', 'key delete failed: ${e.runtimeType}');
-        _keyRevoked = true;
-        try {
-          await _setKeyRevoked(true);
-        } catch (e) {
-          LogService.instance.warning('WidgetBridge', 'key revoke failed: ${e.runtimeType}');
-        }
+        LogService.instance
+            .warning('WidgetBridge', 'key delete failed: ${e.runtimeType}');
       }
       for (var attempt = 1; attempt <= 2; attempt++) {
         try {
-          if (await _channel.invokeMethod<bool>('clear') == true) return;
+          if (await _channel.invokeMethod<bool>('clear') == true) {
+            if (!storageCleared) return false;
+            await _setKeyRevoked(false);
+            return true;
+          }
         } catch (e) {
-          LogService.instance.warning('WidgetBridge', 'clear failed: ${e.runtimeType}');
+          LogService.instance
+              .warning('WidgetBridge', 'clear failed: ${e.runtimeType}');
         }
       }
-      LogService.instance.warning('WidgetBridge', 'widget data could not be invalidated');
+      _keyRevoked = true;
+      if (!revocationSaved) {
+        try {
+          await _setKeyRevoked(true);
+        } catch (_) {}
+      }
+      LogService.instance
+          .warning('WidgetBridge', 'widget data could not be invalidated');
+      return false;
     });
   }
+
+  /// False is not inferred from a preference read failure.
+  Future<bool> isConnectionRevoked() =>
+      isSupported ? _isKeyRevoked() : Future.value(false);
 
   Future<bool> _isKeyRevoked() async {
     if (_keyRevoked) return true;
@@ -226,7 +265,7 @@ class WidgetBridgeService {
       final prefs = await SharedPreferences.getInstance();
       return prefs.getBool(_keyRevokedPref) ?? false;
     } catch (_) {
-      return false;
+      return true;
     }
   }
 
@@ -278,11 +317,14 @@ class WidgetBridgeService {
       if (epoch != _epoch) return false;
       // Round-trip through JSON so only plain JSON types cross the channel.
       final plain = jsonDecode(jsonEncode(payload));
-      final written = await _channel.invokeMethod<bool>('update', plain) ?? false;
-      if (!written) LogService.instance.warning('WidgetBridge', 'update not written');
+      final written =
+          await _channel.invokeMethod<bool>('update', plain) ?? false;
+      if (!written)
+        LogService.instance.warning('WidgetBridge', 'update not written');
       return written;
     } catch (e) {
-      LogService.instance.warning('WidgetBridge', 'update failed: ${e.runtimeType}');
+      LogService.instance
+          .warning('WidgetBridge', 'update failed: ${e.runtimeType}');
       return false;
     }
   }

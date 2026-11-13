@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		AF0000000000000000000005 /* FlexibleSpendingModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF0000000000000000000001 /* FlexibleSpendingModel.swift */; };
 		C00120261112000000000011 /* WidgetCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00120261112000000000013 /* WidgetCredentialStore.swift */; };
 		C00120261112000000000012 /* WidgetCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00120261112000000000013 /* WidgetCredentialStore.swift */; };
 		AF0000000000000000000004 /* FlexibleSpendingWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF0000000000000000000003 /* FlexibleSpendingWidget.swift */; };
@@ -397,6 +398,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,
+				AF0000000000000000000005 /* FlexibleSpendingModel.swift in Sources */,
 				C00120261112000000000001 /* WidgetSessionGeneration.swift in Sources */,
 				C00120261112000000000011 /* WidgetCredentialStore.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,

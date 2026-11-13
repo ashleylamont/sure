@@ -43,6 +43,40 @@ enum WidgetBridge {
 
   static func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
     switch call.method {
+    case "loadBudgetPaceBreakdown":
+      guard let args = call.arguments as? [String: Any],
+            let selection = args["budget"] as? String,
+            let areas = args["areas"] as? [String],
+            BudgetPaceLink.valid(budgetSelection: selection, areaIDs: areas),
+            let track = BudgetTrack(id: selection), let dir = containerURL(),
+            migrateLegacyConfig(), let stored = WidgetCredentialStore.load(),
+            let baseUrl = stored["baseUrl"] as? String,
+            let key = stored["apiKey"] as? String, !key.isEmpty else {
+        result(FlutterError(code: "budget_unavailable", message: "Open Sure and reconnect, then try again.", details: nil))
+        return
+      }
+      let generation = currentGeneration(in: dir)
+      guard (stored["generation"] as? Int ?? 0) == generation else {
+        result(FlutterError(code: "budget_unavailable", message: "Reconnect and try again.", details: nil)); return
+      }
+      let config = BudgetAPIConfig(baseUrl: baseUrl, headers: stored["headers"] as? [String: String] ?? [:], apiKey: key)
+      Task { @MainActor in
+        do {
+          let budgets = try await SpendingAPI.budgets(config)
+          guard let chosen = BudgetSelection.currentBudget(budgets, track: track, at: Date()) else { throw SpendingAPI.Failure.incomplete }
+          let loaded = try await BudgetBreakdownLoader.load(budgetID: chosen.id, areaIDs: areas, config: config)
+          // Never return a previous account's names or balances across logout/login.
+          guard currentGeneration(in: dir) == generation,
+                let current = WidgetCredentialStore.load(),
+                (current["generation"] as? Int ?? 0) == generation,
+                current["apiKey"] as? String == key, current["baseUrl"] as? String == baseUrl,
+                let payload = loaded.payload(at: Date()) else { throw SpendingAPI.Failure.unavailable }
+          result(payload)
+        } catch {
+          result(FlutterError(code: "budget_unavailable", message: "Couldn’t load this budget. Check your connection and widget selection, then try again.", details: nil))
+        }
+      }
+
     case "isAvailable":
       // The widget extension needs iOS 17.
       if #available(iOS 17.0, *) {
