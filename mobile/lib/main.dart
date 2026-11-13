@@ -13,6 +13,9 @@ import 'providers/theme_provider.dart';
 import 'providers/privacy_provider.dart';
 import 'screens/backend_config_screen.dart';
 import 'screens/login_screen.dart';
+import 'screens/budget_pace_screen.dart';
+import 'services/budget_pace_link.dart';
+import 'services/widget_bridge_service.dart';
 import 'screens/biometric_lock_screen.dart';
 import 'screens/main_navigation_screen.dart';
 import 'screens/sso_onboarding_screen.dart';
@@ -131,7 +134,12 @@ class AppWrapper extends StatefulWidget {
 class _AppWrapperState extends State<AppWrapper> with WidgetsBindingObserver {
   bool _isCheckingConfig = true;
   bool _hasBackendUrl = false;
-  bool _isLocked = false;
+  bool _isLocked = true;
+  bool _lockReady = false;
+  Object? _paceAuthTokens;
+  String? _paceUserID;
+  BudgetPaceLink? _paceLink;
+  bool _wasAuthenticated = false;
   late final AppLinks _appLinks;
   StreamSubscription<Uri>? _linkSubscription;
 
@@ -146,6 +154,7 @@ class _AppWrapperState extends State<AppWrapper> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _checkBackendConfig();
+    _hydrateInitialLock();
     _initDeepLinks();
   }
 
@@ -162,6 +171,21 @@ class _AppWrapperState extends State<AppWrapper> with WidgetsBindingObserver {
       _markLockedIfEnabled();
     } else if (state == AppLifecycleState.resumed && _isLocked) {
       // Lock screen is already showing via build(); biometric auto-triggers there.
+    }
+  }
+
+  Future<void> _hydrateInitialLock() async {
+    var enabled = true;
+    try {
+      enabled = await PreferencesService.instance.getBiometricEnabled();
+    } catch (_) {
+      // A failed preference read must not reveal a widget's financial details.
+    }
+    if (mounted) {
+      setState(() {
+        _isLocked = enabled;
+        _lockReady = true;
+      });
     }
   }
 
@@ -227,6 +251,11 @@ class _AppWrapperState extends State<AppWrapper> with WidgetsBindingObserver {
   }
 
   void _handleDeepLink(Uri uri) {
+    final paceLink = BudgetPaceLink.parse(uri);
+    if (paceLink != null && mounted) {
+      setState(() => _paceLink = paceLink);
+      return;
+    }
     final isSsoCallback = _isSsoCallback(uri);
     TelemetryService.instance.addBreadcrumb(
       'deep_links',
@@ -296,13 +325,63 @@ class _AppWrapperState extends State<AppWrapper> with WidgetsBindingObserver {
         }
 
         if (authProvider.isAuthenticated) {
+          if (_wasAuthenticated &&
+              (authProvider.isLoading ||
+                  !identical(_paceAuthTokens, authProvider.tokens) ||
+                  _paceUserID != authProvider.user?.id)) {
+            _paceLink = null;
+          }
+          _paceAuthTokens = authProvider.tokens;
+          _paceUserID = authProvider.user?.id;
+          _wasAuthenticated = true;
+          if (!_lockReady) {
+            return const Scaffold(
+                body: Center(child: CircularProgressIndicator()));
+          }
           return Stack(
             children: [
               UpgradeAlert(
                 upgrader: _upgrader,
                 showIgnore: false,
-                child: const MainNavigationScreen(),
+                child: MainNavigationScreen(
+                  onOpenSpendingPace: !WidgetBridgeService.instance.isSupported
+                      ? null
+                      : (budgetId) {
+                          if (!mounted) return;
+                          setState(() => _paceLink =
+                              BudgetPaceLink('budget:$budgetId', const []));
+                        },
+                ),
               ),
+              if (_paceLink != null &&
+                  !_isLocked &&
+                  !authProvider.widgetPaceAllowed)
+                Scaffold(
+                  appBar: AppBar(
+                    title: const Text('Spending pace'),
+                    leading: IconButton(
+                      icon: const Icon(Icons.arrow_back),
+                      tooltip: 'Close',
+                      onPressed: () => setState(() => _paceLink = null),
+                    ),
+                  ),
+                  body: const Center(
+                      child: Padding(
+                    padding: EdgeInsets.all(24),
+                    child: Text(
+                        'The previous widget connection could not be cleared. Sign out and reconnect before opening spending pace.',
+                        textAlign: TextAlign.center),
+                  )),
+                ),
+              if (_paceLink != null &&
+                  !_isLocked &&
+                  authProvider.widgetPaceAllowed)
+                BudgetPaceScreen(
+                  key: ValueKey(_paceLink),
+                  budget: _paceLink!.budget,
+                  areas: _paceLink!.areas,
+                  onClose: () => setState(() => _paceLink = null),
+                ),
               if (_isLocked)
                 BiometricLockScreen(
                   onUnlocked: _onUnlocked,
@@ -310,6 +389,12 @@ class _AppWrapperState extends State<AppWrapper> with WidgetsBindingObserver {
                 ),
             ],
           );
+        }
+
+        // Never retain a previous authenticated account's widget selection.
+        if (_wasAuthenticated) {
+          _paceLink = null;
+          _wasAuthenticated = false;
         }
 
         // Clear stale lock state so it doesn't flash on the next login.

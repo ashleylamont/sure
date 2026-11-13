@@ -11,6 +11,7 @@ import '../services/device_service.dart';
 import '../services/api_config.dart';
 import '../services/log_service.dart';
 import '../services/telemetry_service.dart';
+import '../services/widget_bridge_service.dart';
 
 class AuthProvider with ChangeNotifier {
   final AuthService _authService = AuthService();
@@ -20,6 +21,7 @@ class AuthProvider with ChangeNotifier {
   AuthTokens? _tokens;
   String? _apiKey;
   bool _isApiKeyAuth = false;
+  bool _widgetPaceAllowed = false;
   bool _isLoading = true;
   bool _isInitializing = true; // Track initial auth check separately
   String? _errorMessage;
@@ -34,6 +36,8 @@ class AuthProvider with ChangeNotifier {
   String? _ssoLastName;
   bool _ssoAllowAccountCreation = false;
   bool _ssoHasPendingInvitation = false;
+
+  bool get widgetPaceAllowed => _widgetPaceAllowed;
 
   User? get user => _user;
   bool get isIntroLayout => _user?.isIntroLayout ?? false;
@@ -69,12 +73,60 @@ class AuthProvider with ChangeNotifier {
     );
   }
 
+  @visibleForTesting
+  static bool widgetIdentityChanged({
+    required bool hadIdentity,
+    required bool wasApiKey,
+    String? previousUserID,
+    String? previousApiKey,
+    String? nextUserID,
+    String? nextApiKey,
+  }) {
+    if (!hadIdentity) return false;
+    if (wasApiKey || nextApiKey != null) {
+      return !wasApiKey || nextApiKey == null || previousApiKey != nextApiKey;
+    }
+    return previousUserID == null ||
+        nextUserID == null ||
+        previousUserID != nextUserID;
+  }
+
+  Future<void> _invalidateWidgetsForIdentity(
+      {String? nextUserID, String? nextApiKey}) async {
+    if (!widgetIdentityChanged(
+        hadIdentity: _tokens != null || _apiKey != null,
+        wasApiKey: _isApiKeyAuth,
+        previousUserID: _user?.id,
+        previousApiKey: _apiKey,
+        nextUserID: nextUserID,
+        nextApiKey: nextApiKey)) return;
+    _widgetPaceAllowed = false;
+    notifyListeners();
+    // clear bumps its epoch synchronously, before the new identity is assigned.
+    try {
+      _widgetPaceAllowed = await WidgetBridgeService.instance.clear();
+    } catch (_) {
+      _widgetPaceAllowed = false;
+    }
+  }
+
+  Future<void> _acceptTokenIdentity(AuthTokens? tokens, User? user) async {
+    await _invalidateWidgetsForIdentity(nextUserID: user?.id);
+    _tokens = tokens;
+    _user = user;
+    _apiKey = null;
+    _isApiKeyAuth = false;
+    ApiConfig.clearApiKeyAuth();
+  }
+
   Future<void> _loadStoredAuth() async {
     _isLoading = true;
     _isInitializing = true;
     notifyListeners();
 
     try {
+      _widgetPaceAllowed =
+          !await WidgetBridgeService.instance.isConnectionRevoked();
       final authMode = await _authService.getStoredAuthMode();
 
       if (authMode == 'api_key') {
@@ -159,8 +211,8 @@ class AuthProvider with ChangeNotifier {
       );
 
       if (result['success'] == true) {
-        _tokens = result['tokens'] as AuthTokens?;
-        _user = result['user'] as User?;
+        await _acceptTokenIdentity(
+            result['tokens'] as AuthTokens?, result['user'] as User?);
         _mfaRequired = false;
         _showMfaInput = false; // Reset on successful login
         _updateTelemetryUser(_user);
@@ -235,6 +287,10 @@ class AuthProvider with ChangeNotifier {
       );
 
       if (result['success'] == true) {
+        await _invalidateWidgetsForIdentity(
+            nextUserID: null, nextApiKey: apiKey);
+        _tokens = null;
+        _user = null;
         _apiKey = apiKey;
         _isApiKeyAuth = true;
         ApiConfig.setApiKeyAuth(apiKey);
@@ -294,8 +350,8 @@ class AuthProvider with ChangeNotifier {
       );
 
       if (result['success'] == true) {
-        _tokens = result['tokens'] as AuthTokens?;
-        _user = result['user'] as User?;
+        await _acceptTokenIdentity(
+            result['tokens'] as AuthTokens?, result['user'] as User?);
         _updateTelemetryUser(_user);
         _addTelemetryBreadcrumb('auth', 'signup_success');
         _isLoading = false;
@@ -371,8 +427,8 @@ class AuthProvider with ChangeNotifier {
       final result = await _authService.handleSsoCallback(uri);
 
       if (result['success'] == true) {
-        _tokens = result['tokens'] as AuthTokens?;
-        _user = result['user'] as User?;
+        await _acceptTokenIdentity(
+            result['tokens'] as AuthTokens?, result['user'] as User?);
         _ssoOnboardingPending = false;
         _updateTelemetryUser(_user);
         _addTelemetryBreadcrumb(
@@ -448,8 +504,8 @@ class AuthProvider with ChangeNotifier {
       );
 
       if (result['success'] == true) {
-        _tokens = result['tokens'] as AuthTokens?;
-        _user = result['user'] as User?;
+        await _acceptTokenIdentity(
+            result['tokens'] as AuthTokens?, result['user'] as User?);
         _clearSsoOnboardingState();
         _updateTelemetryUser(_user);
         _addTelemetryBreadcrumb(
@@ -502,8 +558,8 @@ class AuthProvider with ChangeNotifier {
       );
 
       if (result['success'] == true) {
-        _tokens = result['tokens'] as AuthTokens?;
-        _user = result['user'] as User?;
+        await _acceptTokenIdentity(
+            result['tokens'] as AuthTokens?, result['user'] as User?);
         _clearSsoOnboardingState();
         _updateTelemetryUser(_user);
         _addTelemetryBreadcrumb(
@@ -554,6 +610,7 @@ class AuthProvider with ChangeNotifier {
 
   Future<void> logout() async {
     await _authService.logout();
+    _widgetPaceAllowed = await WidgetBridgeService.instance.clear();
     _tokens = null;
     _user = null;
     _apiKey = null;
