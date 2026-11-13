@@ -300,3 +300,14 @@ content. Account identity changes invalidate the widget connection before accept
 the replacement login; failed cleanup blocks pace loads until reconnection. Token
 refresh does not revoke the widget connection. Runtime biometric interaction is
 not claimed from source-only gate regression checks.
+
+The breakdown now leads with spending versus today's even-pace reference, then
+shows a conditional end-of-period projection and a category breakdown. Calculation
+details are expandable rather than competing with the main explanation. Category
+rows use authoritative detail responses and coalesced parents so descendants are
+not counted twice. Whole-budget totals remain independent of optional category
+rows: capped, failed or non-reconciling rows are explicitly partial. Whole-budget
+category enrichment is enabled only for the app, never widget refresh, and is
+bounded to 20 roots and 15 seconds. Zero-only
+complete lists are distinct from unavailable data. Privacy masks category values,
+pace indicators and financial accessibility content as well as the summary.

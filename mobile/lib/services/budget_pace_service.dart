@@ -22,6 +22,9 @@ class BudgetPaceBreakdown {
     required this.state,
     required this.early,
     required this.paceLabel,
+    this.categories = const [],
+    this.categoryStatus = 'notRequested',
+    this.categoryNote = '',
   });
 
   final String title;
@@ -41,6 +44,9 @@ class BudgetPaceBreakdown {
   final String state;
   final bool early;
   final String paceLabel;
+  final List<BudgetPaceCategory> categories;
+  final String categoryStatus;
+  final String categoryNote;
 
   factory BudgetPaceBreakdown.fromMap(Map<Object?, Object?> data) {
     String text(String key) {
@@ -78,7 +84,22 @@ class BudgetPaceBreakdown {
       return value as String?;
     }
 
+    final rows = data['categoryBreakdown'] ?? <Object?>[];
+    final status = data['categoryBreakdownStatus'] ?? 'notRequested';
+    final note = data['categoryBreakdownNote'] ?? '';
+    if (rows is! List ||
+        !{'complete', 'partial', 'unavailable', 'notRequested'}
+            .contains(status) ||
+        note is! String) {
+      throw const FormatException('Invalid category breakdown');
+    }
     return BudgetPaceBreakdown(
+      categories: List.unmodifiable(rows.map((row) {
+        if (row is! Map) throw const FormatException('Invalid category row');
+        return BudgetPaceCategory.fromMap(row);
+      })),
+      categoryStatus: status as String,
+      categoryNote: note,
       title: text('title'),
       areaNames: List<String>.unmodifiable(names.cast<String>()),
       periodStart: text('periodStart'),
@@ -117,5 +138,45 @@ class BudgetPaceService {
     );
     if (result == null) throw const FormatException('No budget snapshot');
     return BudgetPaceBreakdown.fromMap(result);
+  }
+}
+
+class BudgetPaceCategory {
+  const BudgetPaceCategory(
+      {required this.name,
+      required this.spent,
+      required this.budget,
+      required this.remaining,
+      this.spentFraction,
+      this.remainingLabel});
+  final String name, spent, budget, remaining;
+  final double? spentFraction;
+  final String? remainingLabel;
+
+  factory BudgetPaceCategory.fromMap(Map<Object?, Object?> data) {
+    String text(String key) {
+      final value = data[key];
+      if (value is! String || value.isEmpty) {
+        throw const FormatException('Invalid category amount');
+      }
+      return value;
+    }
+
+    final label = data['remainingLabel'];
+    if (label != null && (label is! String || label.isEmpty)) {
+      throw const FormatException('Invalid category label');
+    }
+    final fraction = data['spentFraction'];
+    if (fraction != null &&
+        (fraction is! num || !fraction.isFinite || fraction < 0)) {
+      throw const FormatException('Invalid category fraction');
+    }
+    return BudgetPaceCategory(
+        name: text('name'),
+        spent: text('spent'),
+        budget: text('budget'),
+        remaining: text('remaining'),
+        remainingLabel: label as String?,
+        spentFraction: (fraction as num?)?.toDouble());
   }
 }

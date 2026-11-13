@@ -64,7 +64,7 @@ enum WidgetBridge {
         do {
           let budgets = try await SpendingAPI.budgets(config)
           guard let chosen = BudgetSelection.currentBudget(budgets, track: track, at: Date()) else { throw SpendingAPI.Failure.incomplete }
-          let loaded = try await BudgetBreakdownLoader.load(budgetID: chosen.id, areaIDs: areas, config: config)
+          let loaded = try await BudgetBreakdownLoader.load(budgetID: chosen.id, areaIDs: areas, config: config, includeCategoryBreakdown: true)
           // Never return a previous account's names or balances across logout/login.
           guard currentGeneration(in: dir) == generation,
                 let current = WidgetCredentialStore.load(),

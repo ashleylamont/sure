@@ -10,7 +10,10 @@ import 'package:sure_mobile/theme/sure_theme.dart';
 
 const money = r'A$1,234.56';
 BudgetPaceBreakdown fixture(
-        {String title = 'November budget', bool early = false}) =>
+        {String title = 'November budget',
+        bool early = false,
+        bool empty = false,
+        bool labeled = false}) =>
     BudgetPaceBreakdown(
       title: title,
       areaNames: const ['Fun', 'Everyday'],
@@ -29,6 +32,19 @@ BudgetPaceBreakdown fixture(
       state: early ? 'unavailable' : 'ahead',
       early: early,
       paceLabel: '37% ahead of even pace',
+      categories: empty
+          ? const []
+          : [
+              BudgetPaceCategory(
+                  name: 'Everyday and longer category name',
+                  spent: r'A$150.00',
+                  budget: r'A$100.00',
+                  remaining: r'−A$50.00',
+                  spentFraction: 1.5,
+                  remainingLabel: labeled ? r'A$50.00 over budget' : null)
+            ],
+      categoryStatus: empty ? 'complete' : 'partial',
+      categoryNote: 'Some categories could not be loaded.',
     );
 
 Widget harness(Future<BudgetPaceBreakdown> Function() loader,
@@ -63,7 +79,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('37% ahead of even pace'), findsOneWidget);
     expect(find.text('137% of even pace'), findsOneWidget);
-    expect(find.text(money), findsOneWidget);
+    expect(find.textContaining(money), findsOneWidget);
     expect(find.bySemanticsLabel(RegExp('1.37 times even spending pace')),
         findsOneWidget);
     await tester.tap(find.byTooltip('Close'));
@@ -87,7 +103,7 @@ void main() {
     await tester.pumpWidget(harness(() async => fixture(), hidden: true));
     await tester.pumpAndSettle();
     expect(find.text('Financial details hidden'), findsOneWidget);
-    expect(find.text(money), findsNothing);
+    expect(find.textContaining(money), findsNothing);
     expect(find.text('37% ahead of even pace'), findsNothing);
     expect(find.text('45%'), findsNothing);
     expect(find.text('137% of even pace'), findsNothing);
@@ -109,6 +125,56 @@ void main() {
     await tester.drag(find.byType(ListView), const Offset(0, -1200));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('category rows show overspend honestly and privacy removes bars',
+      (tester) async {
+    await tester.pumpWidget(harness(() async => fixture()));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('By category'), 250);
+    await tester.pumpAndSettle();
+    expect(find.text('Partial breakdown'), findsOneWidget);
+    expect(find.text(r'A$150.00 spent of A$100.00'), findsOneWidget);
+    expect(find.text(r'−A$50.00 remaining'), findsOneWidget);
+    final bar = tester
+        .widget<LinearProgressIndicator>(find.byType(LinearProgressIndicator));
+    expect(bar.value, 1);
+    expect(find.bySemanticsLabel(RegExp('150 percent of budget used')),
+        findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpWidget(
+        harness(() async => fixture(), hidden: true, budget: 'budget:new'));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('By category'), 250);
+    await tester.pumpAndSettle();
+    expect(find.byType(LinearProgressIndicator), findsNothing);
+    expect(find.text(r'A$150.00 spent of A$100.00'), findsNothing);
+    expect(find.text(r'−A$50.00 remaining'), findsNothing);
+  });
+
+  testWidgets('complete empty category snapshot is not a load failure',
+      (tester) async {
+    await tester.pumpWidget(harness(() async => fixture(empty: true)));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('By category'), 250);
+    expect(find.text('No spending or allocated amounts in these categories.'),
+        findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+    await tester
+        .pumpWidget(harness(() async => fixture(empty: true), hidden: true));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('By category'), 250);
+    expect(find.text('No spending or allocated amounts in these categories.'),
+        findsNothing);
+  });
+
+  testWidgets('shows native over budget wording rather than signed remaining',
+      (tester) async {
+    await tester.pumpWidget(harness(() async => fixture(labeled: true)));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('By category'), 250);
+    expect(find.text(r'A$50.00 over budget'), findsOneWidget);
+    expect(find.text(r'−A$50.00 remaining'), findsNothing);
   });
 
   testWidgets('early period has no invented gauge', (tester) async {
@@ -133,11 +199,11 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Refresh'));
     await tester.pumpAndSettle();
-    expect(find.text(money), findsNothing);
+    expect(find.textContaining(money), findsNothing);
     expect(find.textContaining('private-server-secret'), findsNothing);
     await tester.tap(find.text('Try again'));
     await tester.pumpAndSettle();
-    expect(find.text(money), findsOneWidget);
+    expect(find.textContaining(money), findsOneWidget);
   });
 
   testWidgets('old request cannot replace a new selection', (tester) async {

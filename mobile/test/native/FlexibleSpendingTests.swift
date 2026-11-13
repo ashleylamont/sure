@@ -145,6 +145,28 @@ struct FlexibleSpendingTests {
         precondition(payload["deviation"] as? String == normal.formatted(normal.spent - normal.envelope / 2))
         precondition(payload["areaNames"] as? [String] == ["Example"])
         precondition(breakdown.payload(at: now.addingTimeInterval(7 * 3600)) == nil)
+        let roots = BudgetCategoryBreakdown.roots([area("parent"), area("child", parent: "parent"), area("other")], budgetID: "budget")!
+        precondition(Set(roots.map { $0.category.id }) == ["parent", "other"])
+        precondition(BudgetCategoryBreakdown.roots([area("missing", parent: "absent"), area("other")], budgetID: "budget") == nil)
+        let reconciled = BudgetCategoryBreakdown.make(snapshot: normal,
+            details: [area("root", spent: 60000, left: 40000), area("zero", spent: 0, left: 0)],
+            complete: true, wholeBudget: true, areaNames: [], totalAreas: 2)
+        precondition(reconciled.categoryBreakdownStatus == "complete")
+        precondition(reconciled.categorySnapshots.count == 1, "Hide only known zero-spend zero-allocation rows")
+        let rowsPayload = reconciled.payload(at: now)!["categoryBreakdown"] as! [[String: Any]]
+        precondition(rowsPayload[0]["spentFraction"] as? Double == 0.6)
+        let partial = BudgetCategoryBreakdown.make(snapshot: normal, details: [area("root", spent: 100, left: 100)],
+            complete: false, wholeBudget: true, areaNames: [], totalAreas: 30)
+        precondition(partial.categoryBreakdownStatus == "partial" && partial.snapshot.spent == normal.spent)
+        precondition(partial.categoryBreakdownNote.contains("1 of 30") && partial.categoryBreakdownNote.contains("not ranked"))
+        let refundRows = BudgetCategoryBreakdown.make(snapshot: normal, details: [area("refund", spent: -100, left: 1100)],
+            complete: true, wholeBudget: true, areaNames: [], totalAreas: 1).payload(at: now)!["categoryBreakdown"] as! [[String: Any]]
+        precondition(refundRows[0]["spentFraction"] is NSNull)
+        let overRows = BudgetCategoryBreakdown.make(snapshot: normal, details: [area("over", spent: 112000, left: -12000)],
+            complete: true, wholeBudget: true, areaNames: [], totalAreas: 1).payload(at: now)!["categoryBreakdown"] as! [[String: Any]]
+        precondition(overRows[0]["remainingLabel"] as? String == normal.formatted(12000) + " over budget")
+        precondition(rowsPayload[0]["remainingLabel"] as? String == normal.formatted(40000) + " left")
+        precondition(BudgetCategoryBreakdown.wholeBudgetLimit == 20)
         print("Budget Remaining/Pace math and selection regression checks passed")
     }
 }

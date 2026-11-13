@@ -309,14 +309,16 @@ private final class SpendingRedirectPolicy: NSObject, URLSessionTaskDelegate, @u
 
 enum SpendingAPI {
     enum Failure: Error { case unavailable, incomplete }
-    static func read<T: Decodable>(_ path: String, _ config: BudgetAPIConfig) async throws -> T {
+    static func read<T: Decodable>(_ path: String, _ config: BudgetAPIConfig, timeout: TimeInterval = 15) async throws -> T {
         guard let key = config.apiKey, !key.isEmpty,
               let url = URL(string: config.baseUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/api/v1/" + path) else { throw Failure.unavailable }
-        var request = URLRequest(url: url, timeoutInterval: 15)
+        var request = URLRequest(url: url, timeoutInterval: timeout)
         for (name, value) in config.headers { request.setValue(value, forHTTPHeaderField: name) }
         request.setValue(key, forHTTPHeaderField: "X-Api-Key")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        let session = URLSession(configuration: .ephemeral, delegate: SpendingRedirectPolicy(), delegateQueue: nil)
+        let sessionConfig = URLSessionConfiguration.ephemeral
+        sessionConfig.timeoutIntervalForResource = timeout
+        let session = URLSession(configuration: sessionConfig, delegate: SpendingRedirectPolicy(), delegateQueue: nil)
         defer { session.invalidateAndCancel() }
         let (data, response) = try await session.data(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw Failure.unavailable }
@@ -327,9 +329,9 @@ enum SpendingAPI {
         guard (response.pagination?.totalPages ?? 1) <= 1 else { throw Failure.incomplete }
         return response.budgets
     }
-    static func categories(_ budgetID: String, _ config: BudgetAPIConfig) async throws -> [SpendingCategory] {
+    static func categories(_ budgetID: String, _ config: BudgetAPIConfig, timeout: TimeInterval = 15) async throws -> [SpendingCategory] {
         guard UUID(uuidString: budgetID) != nil else { throw Failure.unavailable }
-        let response: SpendingCategoriesResponse = try await read("budget_categories?budget_id=\(budgetID)&per_page=100", config)
+        let response: SpendingCategoriesResponse = try await read("budget_categories?budget_id=\(budgetID)&per_page=100", config, timeout: timeout)
         guard (response.pagination?.totalPages ?? 1) <= 1 else { throw Failure.incomplete }
         return response.categories
     }
@@ -357,12 +359,23 @@ enum BudgetPaceLink {
 struct BudgetBreakdown: Sendable {
     let snapshot: BudgetSnapshot
     let areaNames: [String]
+    var categorySnapshots: [BudgetSnapshot] = []
+    var categoryBreakdownStatus = "notRequested"
+    var categoryBreakdownNote = ""
     func payload(at now: Date) -> [String: Any]? {
         guard snapshot.problem(at: now) == nil, let days = snapshot.budget.days(at: now) else { return nil }
         let expected = snapshot.envelope * Decimal(days.elapsed) / Decimal(days.total)
         let ratio = snapshot.pace(at: now)
         let projected = snapshot.projection(at: now)
         return ["title": snapshot.scope, "areaNames": areaNames,
+            "categoryBreakdown": categorySnapshots.map { item -> [String: Any] in
+                let fraction = item.envelope > 0 && item.spent >= 0 ? NSDecimalNumber(decimal: item.spent / item.envelope).doubleValue : nil
+                return ["name": item.scope, "spent": item.formatted(item.spent),
+                    "remaining": item.formatted(item.remaining), "budget": item.formatted(item.envelope),
+                    "remainingLabel": item.remainingText + (item.remaining < 0 ? " over budget" : " left"),
+                    "spentFraction": fraction.flatMap { $0.isFinite ? $0 : nil } as Any? ?? NSNull()]
+            },
+            "categoryBreakdownStatus": categoryBreakdownStatus, "categoryBreakdownNote": categoryBreakdownNote,
             "periodStart": snapshot.budget.startDate, "periodEnd": snapshot.budget.endDate,
             "fetchedAt": ISO8601DateFormatter().string(from: snapshot.fetchedAt),
             "currency": snapshot.currency, "spent": snapshot.formatted(snapshot.spent),
@@ -377,29 +390,91 @@ struct BudgetBreakdown: Sendable {
     }
 }
 
+
+/// Presentation rows are independent of authoritative whole-budget totals.
+/// Only nonoverlapping category roots are displayed; a parent covers descendants.
+enum BudgetCategoryBreakdown {
+    static let wholeBudgetLimit = 20
+    static func roots(_ categories: [SpendingCategory], budgetID: String) -> [SpendingCategory]? {
+        guard categories.allSatisfy({ $0.budgetID == budgetID }) else { return nil }
+        return BudgetSelection.areas(categories, selectedIDs: categories.map { $0.category.id }, budgetID: budgetID)
+    }
+    static func make(snapshot: BudgetSnapshot, details: [SpendingCategory], complete: Bool,
+                     wholeBudget: Bool, areaNames: [String], totalAreas: Int? = nil) -> BudgetBreakdown {
+        let allValidRows = details.compactMap { BudgetSnapshot(budget: snapshot.budget, category: $0, fetchedAt: snapshot.fetchedAt) }
+        let rows = allValidRows.filter { $0.spent != 0 || $0.envelope != 0 }
+        let reconciles = rows.reduce(Decimal.zero, { $0 + $1.spent }) == snapshot.spent &&
+            rows.reduce(Decimal.zero, { $0 + $1.remaining }) == snapshot.remaining &&
+            rows.reduce(Decimal.zero, { $0 + $1.envelope }) == snapshot.envelope
+        let allRows = complete && allValidRows.count == details.count
+        let status = allRows && reconciles ? "complete" : (rows.isEmpty ? "unavailable" : "partial")
+        var note: String
+        if wholeBudget && status != "complete" {
+            if let totalAreas {
+                note = "Showing \(rows.count) of \(totalAreas) parent areas (not ranked). These rows do not fully reconcile to the total above."
+            } else {
+                note = "Category details are unavailable. The total above is unchanged."
+            }
+        } else {
+            note = "Parent categories include subcategories once. Budgets include rollover."
+        }
+        let omitted = allValidRows.count - rows.count
+        if omitted > 0 { note += " \(omitted) zero-spend, zero-allocation areas omitted." }
+        return BudgetBreakdown(snapshot: snapshot, areaNames: areaNames, categorySnapshots: rows,
+            categoryBreakdownStatus: status, categoryBreakdownNote: note)
+    }
+}
+
 enum BudgetBreakdownLoader {
-    static func load(budgetID: String, areaIDs: [String], config: BudgetAPIConfig) async throws -> BudgetBreakdown {
+    private static func detail(_ area: SpendingCategory, budgetID: String, config: BudgetAPIConfig, timeout: TimeInterval = 15) async throws -> SpendingCategory {
+        guard UUID(uuidString: area.id) != nil else { throw SpendingAPI.Failure.unavailable }
+        let detail: SpendingCategory = try await SpendingAPI.read("budget_categories/\(area.id)", config, timeout: timeout)
+        guard detail.id == area.id, detail.category.id == area.category.id,
+              detail.category.parentID == area.category.parentID, detail.budgetID == budgetID,
+              detail.currency == area.currency, detail.inheritsParent == area.inheritsParent else { throw SpendingAPI.Failure.incomplete }
+        return detail
+    }
+    static func load(budgetID: String, areaIDs: [String], config: BudgetAPIConfig,
+                     includeCategoryBreakdown: Bool = false) async throws -> BudgetBreakdown {
         guard UUID(uuidString: budgetID) != nil,
               BudgetPaceLink.valid(budgetSelection: "budget:" + budgetID, areaIDs: areaIDs) else { throw SpendingAPI.Failure.unavailable }
         let budget: SpendingBudget = try await SpendingAPI.read("budgets/\(budgetID)", config)
         guard budget.id == budgetID else { throw SpendingAPI.Failure.unavailable }
         var categories: [SpendingCategory] = []
         var names: [String] = []
+        var details: [SpendingCategory] = []
         if !areaIDs.isEmpty {
             categories = try await SpendingAPI.categories(budget.id, config)
             guard let selected = BudgetSelection.areas(categories, selectedIDs: areaIDs, budgetID: budget.id) else { throw SpendingAPI.Failure.incomplete }
             names = selected.map { $0.category.name }
             for area in selected {
-                guard UUID(uuidString: area.id) != nil else { throw SpendingAPI.Failure.unavailable }
-                let detail: SpendingCategory = try await SpendingAPI.read("budget_categories/\(area.id)", config)
-                guard detail.id == area.id, detail.category.id == area.category.id,
-                      detail.category.parentID == area.category.parentID, detail.budgetID == budget.id,
-                      detail.currency == area.currency, detail.inheritsParent == area.inheritsParent else { throw SpendingAPI.Failure.incomplete }
-                categories = categories.map { $0.id == detail.id ? detail : $0 }
+                let loaded = try await detail(area, budgetID: budget.id, config: config)
+                details.append(loaded)
+                categories = categories.map { $0.id == loaded.id ? loaded : $0 }
             }
         }
         guard let snapshot = BudgetSnapshot(budget: budget, categories: categories, selectedIDs: areaIDs, fetchedAt: Date()),
               snapshot.problem(at: Date()) == nil else { throw SpendingAPI.Failure.incomplete }
-        return BudgetBreakdown(snapshot: snapshot, areaNames: names)
+        guard includeCategoryBreakdown else { return BudgetBreakdown(snapshot: snapshot, areaNames: names) }
+        var complete = true
+        var totalAreas: Int? = nil
+        if areaIDs.isEmpty {
+            // This optional enrichment must never replace or invalidate whole-budget totals.
+            // Fail closed on uncertain hierarchy; stop after first request failure.
+            do {
+                let deadline = Date().addingTimeInterval(15)
+                let index = try await SpendingAPI.categories(budget.id, config)
+                guard let roots = BudgetCategoryBreakdown.roots(index, budgetID: budget.id) else { throw SpendingAPI.Failure.incomplete }
+                totalAreas = roots.count
+                complete = roots.count <= BudgetCategoryBreakdown.wholeBudgetLimit
+                for area in roots.prefix(BudgetCategoryBreakdown.wholeBudgetLimit) {
+                    let remainingTime = deadline.timeIntervalSinceNow
+                    guard remainingTime > 0.2 else { throw SpendingAPI.Failure.incomplete }
+                    details.append(try await detail(area, budgetID: budget.id, config: config, timeout: remainingTime))
+                }
+            } catch { complete = false }
+        }
+        return BudgetCategoryBreakdown.make(snapshot: snapshot, details: details, complete: complete,
+            wholeBudget: areaIDs.isEmpty, areaNames: names, totalAreas: totalAreas)
     }
 }

@@ -56,6 +56,65 @@ void main() {
       expect(() => BudgetPaceBreakdown.fromMap(bad), throwsFormatException);
     }
   });
+  test('category rows preserve values and validate ratios/status', () {
+    final row = {
+      'name': 'Fun',
+      'spent': '150',
+      'budget': '100',
+      'remaining': '-50',
+      'spentFraction': 1.5
+    };
+    final value = BudgetPaceBreakdown.fromMap({
+      ...fixture(),
+      'categoryBreakdown': [row],
+      'categoryBreakdownStatus': 'partial',
+      'categoryBreakdownNote': 'Partial'
+    });
+    expect(value.categories.single.spentFraction, 1.5);
+    expect(value.categories.single.remaining, '-50');
+    for (final bad in [
+      {
+        ...fixture(),
+        'categoryBreakdown': [
+          {...row, 'spentFraction': double.nan}
+        ]
+      },
+      {
+        ...fixture(),
+        'categoryBreakdown': [
+          {...row, 'spent': 150}
+        ]
+      },
+      {...fixture(), 'categoryBreakdownStatus': 'unknown'},
+    ]) {
+      expect(() => BudgetPaceBreakdown.fromMap(bad), throwsFormatException);
+    }
+    expect(
+        BudgetPaceBreakdown.fromMap({
+          ...fixture(),
+          'categoryBreakdown': [
+            {...row, 'spentFraction': null}
+          ]
+        }).categories.single.spentFraction,
+        isNull);
+  });
+  test('category remaining label is native formatted with legacy fallback', () {
+    final row = {
+      'name': 'Fun',
+      'spent': '150',
+      'budget': '100',
+      'remaining': '-50'
+    };
+    BudgetPaceCategory parse(Map<String, Object> data) =>
+        BudgetPaceCategory.fromMap(data);
+    expect(parse(row).remainingLabel, isNull);
+    expect(
+        parse({...row, 'remainingLabel': r'A$50 over budget'}).remainingLabel,
+        r'A$50 over budget');
+    expect(parse({...row, 'remainingLabel': r'A$50 left'}).remainingLabel,
+        r'A$50 left');
+    expect(() => parse({...row, 'remainingLabel': 50}), throwsFormatException);
+  });
   test('accepts unavailable projection without inventing zero', () {
     final value = BudgetPaceBreakdown.fromMap({
       ...fixture(),

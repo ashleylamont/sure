@@ -145,29 +145,49 @@ class _BudgetPaceScreenState extends State<BudgetPaceScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
-                                _metric('Spent so far', data.spent, hidden),
-                                _metric('Pace budget', data.budget, hidden),
-                                _metric('Remaining', data.remaining, hidden),
+                                Text('If this average continues',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleMedium),
+                                const SizedBox(height: SureSpacing.sm),
+                                Text(
+                                    hidden
+                                        ? '••••'
+                                        : data.projected ?? 'Not available',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .headlineSmall),
+                                const Text(
+                                    'Projected spending by the end of this period.'),
                                 _metric(
-                                    'Time elapsed',
-                                    '${(data.elapsedFraction * 100).round()}%',
-                                    hidden),
-                                _metric('Expected at even pace', data.expected,
-                                    hidden),
-                                _metric('Difference (+ above / − below)',
-                                    data.deviation, hidden),
-                                _metric('Linear end projection', data.projected,
-                                    hidden),
+                                    'Period pace budget', data.budget, hidden),
+                                _metric('Remaining', data.remaining, hidden),
                               ],
                             ),
                           ),
+                          const SizedBox(height: SureSpacing.xl),
+                          _categories(context, data, hidden),
                           const SizedBox(height: SureSpacing.xl),
                           Text(
                               'Updated ${DateFormat.yMMMd().add_jm().format(data.fetchedAt.toLocal())}',
                               style: Theme.of(context).textTheme.bodySmall),
                           const SizedBox(height: SureSpacing.md),
                           const Text(
-                              'Even pace spreads the pace budget across the period. For selected categories it includes rollover; the whole-budget view uses the period allocation. Bills and planned one-off purchases can put spending ahead temporarily. Bank transactions may arrive late; this is a budget comparison, not cash available to spend.'),
+                              'Bank transactions may arrive late. Bills and one-off purchases can shift the pace temporarily.'),
+                          ExpansionTile(
+                            tilePadding: EdgeInsets.zero,
+                            title: const Text('How this is worked out'),
+                            children: [
+                              _metric(
+                                  'Time elapsed',
+                                  '${(data.elapsedFraction * 100).round()}%',
+                                  hidden),
+                              _metric('Difference (+ above / − below)',
+                                  data.deviation, hidden),
+                              const Text(
+                                  'Even pace spreads the pace budget evenly across this period. The projection extends your average spending so far, not a prediction of your bills. Category budgets include rollover; the whole-budget comparison uses the period allocation. Remaining is budget headroom, not cash available to spend.'),
+                            ],
+                          ),
                           const SizedBox(height: SureSpacing.xxxl),
                         ],
                       ),
@@ -193,6 +213,13 @@ class _BudgetPaceScreenState extends State<BudgetPaceScreen> {
     final ratio = data.paceRatio;
     return Column(
       children: [
+        if (!hidden) ...[
+          const SizedBox(height: SureSpacing.md),
+          Text('Spent ${data.spent} vs ${data.expected} expected by today',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: SureSpacing.md),
+        ],
         if (!data.early && ratio != null)
           Semantics(
             container: true,
@@ -231,6 +258,61 @@ class _BudgetPaceScreenState extends State<BudgetPaceScreen> {
             textAlign: TextAlign.center),
       ],
     );
+  }
+
+  Widget _categories(
+      BuildContext context, BudgetPaceBreakdown data, bool hidden) {
+    final palette = SureColors.of(context).palette;
+    return SureCard(
+        child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text('By category', style: Theme.of(context).textTheme.titleLarge),
+        if (data.categoryStatus == 'partial') const Text('Partial breakdown'),
+        if (data.categories.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: SureSpacing.md),
+            child: Text(hidden
+                ? 'Financial details hidden'
+                : data.categoryStatus == 'complete'
+                    ? 'No spending or allocated amounts in these categories.'
+                    : 'Category details are not available. The overall figures above still apply.'),
+          ),
+        for (final row in data.categories)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: SureSpacing.md),
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(row.name,
+                      style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: SureSpacing.sm),
+                  Text(hidden ? '••••' : '${row.spent} spent of ${row.budget}'),
+                  if (!hidden && row.spentFraction != null) ...[
+                    const SizedBox(height: SureSpacing.sm),
+                    Semantics(
+                      label:
+                          '${row.name}: ${(row.spentFraction! * 100).round()} percent of budget used',
+                      child: ExcludeSemantics(
+                          child: LinearProgressIndicator(
+                        value: row.spentFraction!.clamp(0, 1),
+                        color: row.spentFraction! > 1
+                            ? palette.warning
+                            : palette.textSecondary,
+                        backgroundColor: palette.borderSecondary,
+                      )),
+                    ),
+                  ],
+                  const SizedBox(height: SureSpacing.sm),
+                  Text(hidden
+                      ? '••••'
+                      : row.remainingLabel ?? '${row.remaining} remaining'),
+                ]),
+          ),
+        if (!hidden && data.categoryNote.isNotEmpty)
+          Text(data.categoryNote, style: Theme.of(context).textTheme.bodySmall),
+      ],
+    ));
   }
 
   Widget _metric(String label, String? value, bool hidden) => Padding(
